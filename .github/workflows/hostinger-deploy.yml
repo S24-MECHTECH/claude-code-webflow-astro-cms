@@ -119,11 +119,9 @@ jobs:
   deploy-cloudflare:
     needs: build
     runs-on: ubuntu-latest
-    # Job-level env is accessible in job-level if:
-    env:
-      CF_API_TOKEN: ${{ inputs.cloudflare_api_token }}
-      CF_ACCOUNT_ID: ${{ inputs.cloudflare_account_id }}
-    if: env.CF_API_TOKEN != ''
+    # Only run if CLOUDFLARE_API_TOKEN was explicitly provided (workflow_dispatch with token, or repo secret set)
+    # github.event.inputs.xxx is undefined for push/repository_dispatch → condition is false → job skipped
+    if: github.event.inputs.cloudflare_api_token != ''
     steps:
       - name: Download build artifact
         uses: actions/download-artifact@v4
