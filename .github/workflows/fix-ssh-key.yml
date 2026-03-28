@@ -1,0 +1,45 @@
+name: Fix SSH Key
+on:
+  workflow_dispatch:
+
+jobs:
+  fix-ssh:
+    runs-on: ubuntu-latest
+    outputs:
+      public_key: ${{ steps.gen_key.outputs.public_key }}
+    steps:
+      - name: Generate new ed25519 SSH key
+        id: gen_key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -t ed25519 -C "github-actions-realdollz" -f ~/.ssh/deploy_key -N ""
+          PUBLIC_KEY=$(cat ~/.ssh/deploy_key.pub)
+          PRIVATE_KEY=$(cat ~/.ssh/deploy_key)
+          echo "public_key<<EOF" >> $GITHUB_OUTPUT
+echo "$PUBLIC_KEY" >> $GITHUB_OUTPUT
+echo "EOF" >> $GITHUB_OUTPUT
+echo "Generated: $PUBLIC_KEY"
+
+      - name: Verify key
+        run: ssh-keygen -lf ~/.ssh/deploy_key && echo "Key OK"
+
+      - name: Show public key for manual server update
+        run: |
+          echo '========================================'
+          echo 'PUBLIC KEY FOR SERVER authorized_keys:'
+          echo '========================================'
+          cat ~/.ssh/deploy_key.pub
+          echo ''
+          echo '========================================'
+          echo 'Add this to /root/.ssh/authorized_keys on:'
+          echo '  Host: 72.61.80.236'
+          echo '  User: root'
+          echo '========================================'
+
+      - name: Test SSH connection
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=10 \
+            root@72.61.80.236 \
+            'echo SSH SUCCESS && uptime' || echo SSH FAILED - key not in authorized_keys
