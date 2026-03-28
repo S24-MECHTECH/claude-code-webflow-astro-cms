@@ -16,7 +16,7 @@ on:
         required: false
         type: string
       hostinger_sftp_key:
-        description: 'HOSTINGER_SFTP_KEY — SSH private key (ed25519)'
+        description: 'CLOUDFLARE_API_TOKEN'
         required: false
         type: string
       cloudflare_api_token:
@@ -76,24 +76,60 @@ jobs:
           USER="${{ inputs.hostinger_sftp_user || secrets.HOSTINGER_SFTP_USER }}"
           KEY="${{ inputs.hostinger_sftp_key || secrets.HOSTINGER_SFTP_KEY }}"
 
+          echo "=== SSH Key Debug Info ==="
+          echo "KEY length: ${#KEY} chars"
+          echo "KEY starts with: ${KEY:0:40}"
+          echo "KEY ends with: ${KEY: -40}"
+          echo "KEY contains OPEN SSH marker: $(echo "$KEY" | grep -c 'BEGIN OPENSSH')"
+          echo "KEY contains RSA marker: $(echo "$KEY" | grep -c 'BEGIN RSA')"
+          echo "KEY contains ED25519 marker: $(echo "$KEY" | grep -c 'BEGIN ED25519')"
+          echo "KEY contains EC marker: $(echo "$KEY" | grep -c 'BEGIN EC')"
+
           mkdir -p ~/.ssh
           echo "$KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           echo "Private key written to ~/.ssh/deploy_key"
 
-          echo "Testing SSH key authentication..."
-          ssh -o StrictHostKeyChecking=no \
+          echo "=== Private Key File Contents ==="
+          cat ~/.ssh/deploy_key | head -3
+
+          echo "=== SSH Key Permissions ==="
+          ls -la ~/.ssh/deploy_key
+
+          echo "=== Testing SSH with verbose output ==="
+          ssh -v \
+              -o StrictHostKeyChecking=no \
               -o UserKnownHostsFile=/dev/null \
               -o BatchMode=yes \
-              -o ConnectTimeout=15 \
+              -o ConnectTimeout=30 \
+              -o PreferredAuthentications=publickey \
               -i "$HOME/.ssh/deploy_key" \
-              "$USER@$HOST" echo "SSH key auth SUCCESS"
+              "$USER@$HOST" echo "SSH key auth SUCCESS" 2>&1 | tee ssh_debug.log
+          SSH_EXIT=$?
+          echo "SSH exit code: $SSH_EXIT"
 
-          echo "Starting rsync deployment..."
+          if [ $SSH_EXIT -ne 0 ]; then
+            echo "=== SSH Debug Log ==="
+            cat ssh_debug.log
+            echo "=== Available SSH debug auth methods ==="
+            ssh -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null \
+                -o ConnectTimeout=30 \
+                -v \
+                "$USER@$HOST" echo 2>&1 | grep -E "(Authentications|authentications|method|server|password)" || true
+          fi
+
+          echo "=== Starting rsync deployment ==="
           rsync -avz --delete \
-            -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i $HOME/.ssh/deploy_key" \
+            -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o PreferredAuthentications=publickey -i $HOME/.ssh/deploy_key" \
             --exclude='.git' --exclude='node_modules' --exclude='src' --exclude='.env' \
-            ./ "$USER@$HOST:/public_html/"
+            ./ "$USER@$HOST:/public_html/" 2>&1 | tee rsync_debug.log
+          RSYNC_EXIT=$?
+          echo "rsync exit code: $RSYNC_EXIT"
+          if [ $RSYNC_EXIT -ne 0 ]; then
+            echo "=== rsync Debug Log ==="
+            cat rsync_debug.log
+          fi
 
           echo "Deployment complete!"
 
