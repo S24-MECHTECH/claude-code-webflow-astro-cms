@@ -1,0 +1,170 @@
+---
+import BaseHead from '../components/BaseHead.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import SeoHero from '../components/SeoHero.astro';
+import Features from '../components/Features.astro';
+import ContentSection from '../components/ContentSection.astro';
+import FaqSection from '../components/FaqSection.astro';
+import TopBanner from '../components/TopBanner.astro';
+import DesignerBanner from '../components/DesignerBanner.astro';
+import { SITE_TITLE, SITE_DESCRIPTION } from '../consts';
+import { getPublishedItems, getFirstPublishedItem } from '../lib/webflow';
+
+// All data fetching in frontmatter (runs at build time)
+const allItems = getPublishedItems();
+const featuredItem = getFirstPublishedItem();
+
+// Precompute all derived values as plain strings/booleans — NO complex JSX expressions
+const seoTitle = featuredItem ? featuredItem.seoTitle : SITE_TITLE;
+const seoDescription = featuredItem ? featuredItem.seoDescription : SITE_DESCRIPTION;
+const ogImage = featuredItem && featuredItem.ogImage ? featuredItem.ogImage :
+                featuredItem && featuredItem.heroBanner ? featuredItem.heroBanner : undefined;
+const ogTitleMeta = featuredItem && featuredItem.ogTitle ? featuredItem.ogTitle : null;
+const ogDescMeta = featuredItem && featuredItem.ogDescription ? featuredItem.ogDescription : null;
+const faqSectionContent = featuredItem && featuredItem.faqSection ? featuredItem.faqSection : '';
+const hasFeaturedItem = featuredItem ? true : false;
+
+// Precompute card data so template only receives plain values
+const showItemsData: Array<{
+  slug: string;
+  href: string;
+  imgSrc: string | null;
+  name: string;
+  heading: string;
+} | null> = allItems
+  .filter(item => {
+    if (!item.slug) return false;
+    if (featuredItem && item.slug === featuredItem.slug) return false;
+    return true;
+  })
+  .map(item => {
+    const href = '/' + item.slug;
+    const imgSrc = item.heroBanner ? item.heroBanner : null;
+    const heading = item.seoTitle ? item.seoTitle : (item.description ? item.description : item.name);
+    return { slug: item.slug, href, imgSrc, name: item.name, heading };
+  });
+---
+
+<!doctype html>
+<html lang="de">
+	<head>
+		<BaseHead
+			title={seoTitle}
+			description={seoDescription}
+			image={ogImage}
+		/>
+		<meta property="og:type" content="website" />
+		<meta property="og:locale" content="de_DE" />
+		{ogTitleMeta ? <meta property="og:title" content={ogTitleMeta} /> : null}
+		{ogDescMeta ? <meta property="og:description" content={ogDescMeta} /> : null}
+	</head>
+	<body>
+		<TopBanner />
+		<Header />
+		<DesignerBanner />
+
+		{hasFeaturedItem && featuredItem ? (
+			<>
+				<SeoHero item={featuredItem} />
+				<ContentSection item={featuredItem} />
+				<FaqSection content={faqSectionContent} />
+				<Features />
+			</>
+		) : (
+			<main class="empty-state">
+				<div class="container">
+					<h1>Willkommen bei SiliconeDolls24</h1>
+					<p>Premium Silikonpuppen in Top Qualitat. 100% Made in Germany.</p>
+				</div>
+			</main>
+		)}
+
+		{showItemsData.length > 0 ? (
+			<section class="more-pages">
+				<div class="container">
+					<h2>Weitere Seiten</h2>
+					<div class="pages-grid">
+						{showItemsData.map(item => item ? (
+							<a href={item.href} class="page-card">
+								{item.imgSrc ? <img src={item.imgSrc} alt={item.name} loading="lazy" /> : null}
+								<div class="page-card-content">
+									<h3>{item.name}</h3>
+									<p>{item.heading}</p>
+									<span class="cta-link">Mehr erfahren &rarr;</span>
+								</div>
+							</a>
+						) : null)}
+					</div>
+				</div>
+			</section>
+		) : null}
+
+		<Footer />
+	</body>
+</html>
+
+<style>
+	.empty-state {
+		text-align: center;
+		padding: 6rem 1rem;
+	}
+	.container {
+		max-width: 1200px;
+		margin: 0 auto;
+		padding: 0 1.5rem;
+	}
+	.more-pages {
+		padding: 4rem 0;
+		background: #f8f9fa;
+	}
+	.more-pages h2 {
+		text-align: center;
+		margin-bottom: 2rem;
+		color: rgb(var(--black));
+		font-size: 2rem;
+	}
+	.pages-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+		gap: 1.5rem;
+	}
+	.page-card {
+		background: white;
+		border-radius: 12px;
+		overflow: hidden;
+		box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+		text-decoration: none;
+		color: inherit;
+		transition: transform 0.2s, box-shadow 0.2s;
+		display: block;
+	}
+	.page-card:hover {
+		transform: translateY(-4px);
+		box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+	}
+	.page-card img {
+		width: 100%;
+		height: 180px;
+		object-fit: cover;
+	}
+	.page-card-content {
+		padding: 1.25rem;
+	}
+	.page-card h3 {
+		margin: 0 0 0.5rem 0;
+		font-size: 1.2rem;
+		color: rgb(var(--black));
+	}
+	.page-card p {
+		margin: 0 0 0.75rem 0;
+		font-size: 0.95rem;
+		color: rgb(var(--gray));
+		line-height: 1.5;
+	}
+	.cta-link {
+		color: var(--accent);
+		font-weight: 600;
+		font-size: 0.95rem;
+	}
+</style>

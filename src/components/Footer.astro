@@ -1,0 +1,154 @@
+---
+import { SITE_TITLE, SITE_URL } from '../consts';
+import FooterBanner from './FooterBanner.astro';
+const currentYear = new Date().getFullYear();
+---
+
+<footer>
+	<FooterBanner />
+	<div class="footer-main">
+		<div class="footer-brand">
+			<h3>{SITE_TITLE}</h3>
+			<p>Premium Silikonpuppen in Top Qualität. 100% Made in Germany. Diskret verpackt und schnell geliefert.</p>
+			<div class="trust-badges">
+				<span class="badge">🔒 SSL Verschlüsselt</span>
+				<span class="badge">📦 Diskreter Versand</span>
+				<span class="badge">🇩🇪 Deutsche Marke</span>
+			</div>
+		</div>
+		<div class="footer-links">
+			<div class="footer-col">
+				<h4>Shop</h4>
+				<a href="/s24-seo-cms">Alle Produkte</a>
+				<a href="/s24-seo-cms">Silikonpuppen</a>
+				<a href="/s24-seo-cms">Liebespuppen</a>
+				<a href="/s24-seo-cms">Premium</a>
+			</div>
+			<div class="footer-col">
+				<h4>Information</h4>
+				<a href="https://siliconedolls24.com/kontakt">Kontakt</a>
+				<a href="https://siliconedolls24.com/ueber-uns">Über uns</a>
+				<a href="https://siliconedolls24.com/faq">FAQ</a>
+				<a href="https://siliconedolls24.com/blog">Blog</a>
+			</div>
+			<div class="footer-col">
+				<h4>Rechtliches</h4>
+				<a href="https://siliconedolls24.com/agb">AGB</a>
+				<a href="https://siliconedolls24.com/datenschutz">Datenschutz</a>
+				<a href="https://siliconedolls24.com/impressum">Impressum</a>
+				<a href="https://siliconedolls24.com/widerruf">Widerruf</a>
+			</div>
+			<div class="footer-col">
+				<h4>Kontakt</h4>
+				<a href="mailto:info@siliconedolls24.com">info@siliconedolls24.com</a>
+				<a href="https://wa.me/4900000000000">WhatsApp</a>
+				<div class="social-row">
+					<a href="https://www.facebook.com/siliconedolls24/" target="_blank" aria-label="Facebook">📘</a>
+					<a href="https://www.instagram.com/siliconedolls24/" target="_blank" aria-label="Instagram">📸</a>
+					<a href="https://www.pinterest.com/siliconedolls24/" target="_blank" aria-label="Pinterest">📌</a>
+				</div>
+			</div>
+		</div>
+	</div>
+	<div class="footer-bottom">
+		<p>&copy; {currentYear} {SITE_TITLE}. Alle Rechte vorbehalten.</p>
+		<p class="footer-note">🇩🇪 Made in Germany · Premium Qualität · Diskreter Versand</p>
+	</div>
+</footer>
+
+<style>
+	footer {
+		background: #1a1a2e;
+		color: rgba(255,255,255,0.75);
+		padding: 0;
+		margin-top: 0;
+	}
+	.footer-main {
+		display: grid;
+		grid-template-columns: 1fr 2fr;
+		gap: 3rem;
+		max-width: 1200px;
+		margin: 0 auto;
+		padding: 4rem 1.5rem 3rem;
+	}
+	.footer-brand h3 {
+		color: white;
+		font-size: 1.3rem;
+		margin: 0 0 0.75rem 0;
+		font-weight: 800;
+	}
+	.footer-brand p {
+		font-size: 0.9rem;
+		line-height: 1.6;
+		margin: 0 0 1.25rem 0;
+	}
+	.trust-badges {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+	.badge {
+		font-size: 0.78rem;
+		background: rgba(255,255,255,0.08);
+		border: 1px solid rgba(255,255,255,0.12);
+		padding: 0.3rem 0.6rem;
+		border-radius: 20px;
+		white-space: nowrap;
+	}
+	.footer-links {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 2rem;
+	}
+	.footer-col h4 {
+		color: white;
+		font-size: 0.9rem;
+		font-weight: 700;
+		margin: 0 0 1rem 0;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+	}
+	.footer-col a {
+		display: block;
+		color: rgba(255,255,255,0.6);
+		text-decoration: none;
+		font-size: 0.88rem;
+		margin-bottom: 0.5rem;
+		transition: color 0.2s;
+	}
+	.footer-col a:hover {
+		color: #e94560;
+	}
+	.social-row {
+		display: flex;
+		gap: 0.75rem;
+		margin-top: 0.75rem;
+	}
+	.social-row a {
+		font-size: 1.3rem;
+		margin: 0;
+	}
+	.footer-bottom {
+		border-top: 1px solid rgba(255,255,255,0.08);
+		padding: 1.5rem;
+		text-align: center;
+		max-width: 1200px;
+		margin: 0 auto;
+	}
+	.footer-bottom p {
+		margin: 0;
+		font-size: 0.85rem;
+		color: rgba(255,255,255,0.4);
+	}
+	.footer-note {
+		margin-top: 0.35rem !important;
+		font-size: 0.8rem !important;
+	}
+	@media (max-width: 900px) {
+		.footer-main { grid-template-columns: 1fr; }
+		.footer-links { grid-template-columns: repeat(2, 1fr); }
+	}
+	@media (max-width: 500px) {
+		.footer-links { grid-template-columns: 1fr; }
+	}
+</style>

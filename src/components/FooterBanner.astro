@@ -1,0 +1,26 @@
+---
+// Footer Banner - Full Width Image Banner
+import { BANNER_FOOTER_URL } from '../consts';
+---
+<div class="footer-banner">
+	<a href="/" class="banner-link">
+		<img src={BANNER_FOOTER_URL} alt="SiliconeDolls24 Footer Banner" class="banner-image" />
+	</a>
+</div>
+
+<style>
+	.footer-banner {
+		width: 100%;
+		overflow: hidden;
+	}
+	.banner-link {
+		display: block;
+		width: 100%;
+	}
+	.banner-image {
+		width: 100%;
+		height: auto;
+		display: block;
+		object-fit: cover;
+	}
+</style>

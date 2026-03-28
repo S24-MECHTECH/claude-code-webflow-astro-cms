@@ -1,0 +1,26 @@
+---
+// Secondary Banner - Full Width Image
+import { BANNER_SECONDARY_URL } from '../consts';
+---
+<section class="designer-banner">
+	<a href="/" class="banner-link">
+		<img src={BANNER_SECONDARY_URL} alt="SiliconeDolls24 Shop Banner" class="banner-image" />
+	</a>
+</section>
+
+<style>
+	.designer-banner {
+		width: 100%;
+		overflow: hidden;
+	}
+	.banner-link {
+		display: block;
+		width: 100%;
+	}
+	.banner-image {
+		width: 100%;
+		height: auto;
+		display: block;
+		object-fit: cover;
+	}
+</style>

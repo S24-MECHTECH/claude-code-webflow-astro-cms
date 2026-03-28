@@ -1,0 +1,26 @@
+---
+// Top Banner - Full Width Image Banner
+import { BANNER_TOP_URL } from '../consts';
+---
+<div class="top-banner">
+	<a href="/" class="banner-link">
+		<img src={BANNER_TOP_URL} alt="SiliconeDolls24 Banner" class="banner-image" />
+	</a>
+</div>
+
+<style>
+	.top-banner {
+		width: 100%;
+		overflow: hidden;
+	}
+	.banner-link {
+		display: block;
+		width: 100%;
+	}
+	.banner-image {
+		width: 100%;
+		height: auto;
+		display: block;
+		object-fit: cover;
+	}
+</style>
