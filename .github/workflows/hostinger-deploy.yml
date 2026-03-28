@@ -30,6 +30,11 @@ on:
   repository_dispatch:
     types: [webflow-update]
 
+env:
+  # Set from workflow_dispatch inputs for use in if: conditions
+  CF_API_TOKEN: ${{ inputs.cloudflare_api_token }}
+  CF_ACCOUNT_ID: ${{ inputs.cloudflare_account_id }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -119,8 +124,8 @@ jobs:
   deploy-cloudflare:
     needs: build
     runs-on: ubuntu-latest
-    # Skip if Cloudflare credentials not provided
-    if: inputs.cloudflare_api_token != '' || secrets.CLOUDFLARE_API_TOKEN != ''
+    # Skip if Cloudflare credentials not provided (env vars from workflow_dispatch inputs)
+    if: env.CF_API_TOKEN != ''
     steps:
       - name: Download build artifact
         uses: actions/download-artifact@v4
