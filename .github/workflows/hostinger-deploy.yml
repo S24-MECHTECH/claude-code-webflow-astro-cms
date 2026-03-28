@@ -23,7 +23,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build Astro
         run: npm run build
@@ -49,14 +49,30 @@ jobs:
       - name: Generate SSH key in runner
         run: |
           mkdir -p ~/.ssh
-          ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/deploy_key -N "" -q
-          echo 'INLINE_SSH_KEY<<EOF' >> $GITHUB_OUTPUT
+          ssh-keygen -t ed25519 -C "github-actions-realdollz" -f ~/.ssh/deploy_key -N "" -q
+          echo "SSH_KEY<<EOF" >> $GITHUB_OUTPUT
           cat ~/.ssh/deploy_key >> $GITHUB_OUTPUT
-          echo 'EOF' >> $GITHUB_OUTPUT
-          echo 'Generated fresh ed25519 key in runner'
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "PUBLIC_KEY<<EOF" >> $GITHUB_OUTPUT
+          cat ~/.ssh/deploy_key.pub >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "Generated fresh ed25519 key pair in runner"
         id: gen_key
 
-      - name: Deploy to Hostinger
+      - name: Add public key to server (via SSH)
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: 72.61.80.236
+          username: root
+          key: ${{ steps.gen_key.outputs.SSH_KEY }}
+          port: 22
+          script: |
+            mkdir -p ~/.ssh
+            echo "${{ steps.gen_key.outputs.PUBLIC_KEY }}" >> ~/.ssh/authorized_keys
+            echo "Key added to authorized_keys"
+            cat ~/.ssh/authorized_keys
+
+      - name: Deploy to Hostinger via SFTP
         uses: easingthemes/ssh-deploy@v5.1.0
         env:
           HOST: 72.61.80.236
@@ -64,9 +80,7 @@ jobs:
           PORT: '22'
           SOURCE: './'
           TARGET: '/public_html/'
-          SSH_KEY: ${{ steps.gen_key.outputs.INLINE_SSH_KEY }}
-          KNOWN_HOSTS: |
-            72.61.80.236 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHyZJ7rK7H5F5Vv1K9m3Z8dN4P6qR2xT8jW5YcE1oB7
+          SSH_KEY: ${{ steps.gen_key.outputs.SSH_KEY }}
           ARGS: '-rlvz --delete'
           EXCLUDE: '/.git/ /node_modules/ /src/ /.env*'
 
@@ -74,7 +88,6 @@ jobs:
         run: |
           echo 'Build artifact contains:'
           ls -la
-          echo ''
           echo 'SFTP deploy complete!'
 
   deploy-cloudflare:
