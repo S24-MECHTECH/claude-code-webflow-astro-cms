@@ -15,6 +15,10 @@ on:
         description: 'HOSTINGER_SFTP_USER (e.g. root)'
         required: false
         type: string
+      hostinger_sftp_key:
+        description: 'HOSTINGER_SFTP_KEY — SSH private key (ed25519)'
+        required: false
+        type: string
       cloudflare_api_token:
         description: 'CLOUDFLARE_API_TOKEN'
         required: false
@@ -70,15 +74,13 @@ jobs:
         run: |
           HOST="${{ inputs.hostinger_sftp_host || secrets.HOSTINGER_SFTP_HOST }}"
           USER="${{ inputs.hostinger_sftp_user || secrets.HOSTINGER_SFTP_USER }}"
-          KEY="${{ secrets.HOSTINGER_SFTP_KEY }}"
+          KEY="${{ inputs.hostinger_sftp_key || secrets.HOSTINGER_SFTP_KEY }}"
 
-          # Write private key to file with restricted permissions
           mkdir -p ~/.ssh
           echo "$KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           echo "Private key written to ~/.ssh/deploy_key"
 
-          # Verify key-based SSH works
           echo "Testing SSH key authentication..."
           ssh -o StrictHostKeyChecking=no \
               -o UserKnownHostsFile=/dev/null \
@@ -87,14 +89,10 @@ jobs:
               -i "$HOME/.ssh/deploy_key" \
               "$USER@$HOST" echo "SSH key auth SUCCESS"
 
-          # Deploy using rsync over SSH with key authentication
           echo "Starting rsync deployment..."
           rsync -avz --delete \
             -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i $HOME/.ssh/deploy_key" \
-            --exclude='.git' \
-            --exclude='node_modules' \
-            --exclude='src' \
-            --exclude='.env' \
+            --exclude='.git' --exclude='node_modules' --exclude='src' --exclude='.env' \
             ./ "$USER@$HOST:/public_html/"
 
           echo "Deployment complete!"
