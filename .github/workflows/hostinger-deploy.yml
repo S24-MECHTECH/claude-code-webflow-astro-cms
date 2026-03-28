@@ -15,10 +15,6 @@ on:
         description: 'HOSTINGER_SFTP_USER (e.g. root)'
         required: false
         type: string
-      hostinger_ssh_password:
-        description: 'HOSTINGER_SSH_PASSWORD'
-        required: false
-        type: string
       cloudflare_api_token:
         description: 'CLOUDFLARE_API_TOKEN'
         required: false
@@ -70,65 +66,44 @@ jobs:
         with:
           name: dist
 
-      - name: Generate SSH key in runner
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keygen -t ed25519 -C "github-actions-realdollz" -f ~/.ssh/deploy_key -N "" -q
-          echo "SSH_KEY<<EOF" >> $GITHUB_OUTPUT
-          cat ~/.ssh/deploy_key >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "PUBLIC_KEY<<EOF" >> $GITHUB_OUTPUT
-          cat ~/.ssh/deploy_key.pub >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "Generated fresh ed25519 key pair in runner"
-        id: gen_key
-
-      - name: Install sshpass and rsync
-        run: |
-          apt-get update -qq && apt-get install -y -qq sshpass rsync > /dev/null 2>&1
-          echo "sshpass version: $(sshpass -V | head -1)"
-          echo "rsync version: $(rsync --version | head -1)"
-
-      - name: Add public key to server and deploy via SSH
+      - name: Deploy to Hostinger via rsync + SSH key
         run: |
           HOST="${{ inputs.hostinger_sftp_host || secrets.HOSTINGER_SFTP_HOST }}"
           USER="${{ inputs.hostinger_sftp_user || secrets.HOSTINGER_SFTP_USER }}"
-          PASS="${{ inputs.hostinger_ssh_password || secrets.HOSTINGER_SSH_PASSWORD }}"
-          PUB_KEY="${{ steps.gen_key.outputs.PUBLIC_KEY }}"
+          KEY="${{ secrets.HOSTINGER_SFTP_KEY }}"
 
-          # Step 1: Add the public key to the server using SSH with password
-          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o BatchMode=no "$USER@$HOST" << 'SSHEOF'
-            mkdir -p ~/.ssh
-            chmod 700 ~/.ssh
-            printf '%s\n' "$PUB_KEY" >> ~/.ssh/authorized_keys
-            chmod 600 ~/.ssh/authorized_keys
-            echo "Public key added to authorized_keys"
-          SSHEOF
+          # Write private key to file with restricted permissions
+          mkdir -p ~/.ssh
+          echo "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          echo "Private key written to ~/.ssh/deploy_key"
 
-          # Step 2: Verify key-based SSH works
-          echo "Verifying SSH key authentication..."
-          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              -o BatchMode=yes -o ConnectTimeout=10 \
-              -i "$HOME/.ssh/deploy_key" "$USER@$HOST" echo "SSH key auth SUCCESS"
+          # Verify key-based SSH works
+          echo "Testing SSH key authentication..."
+          ssh -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null \
+              -o BatchMode=yes \
+              -o ConnectTimeout=15 \
+              -i "$HOME/.ssh/deploy_key" \
+              "$USER@$HOST" echo "SSH key auth SUCCESS"
 
-          # Step 3: Deploy using rsync over SSH with the generated key
+          # Deploy using rsync over SSH with key authentication
           echo "Starting rsync deployment..."
-          sshpass -e rsync -avz --delete \
+          rsync -avz --delete \
             -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i $HOME/.ssh/deploy_key" \
-            --exclude='.git' --exclude='node_modules' --exclude='src' --exclude='.env' \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='src' \
+            --exclude='.env' \
             ./ "$USER@$HOST:/public_html/"
 
           echo "Deployment complete!"
-
-        env:
-          SSHPASS: ${{ inputs.hostinger_ssh_password || secrets.HOSTINGER_SSH_PASSWORD }}
 
       - name: Verify deployment
         run: |
           echo 'Build artifact contains:'
           ls -la
-          echo 'SFTP deploy complete!'
+          echo 'Hostinger deploy complete!'
 
   deploy-cloudflare:
     needs: build
