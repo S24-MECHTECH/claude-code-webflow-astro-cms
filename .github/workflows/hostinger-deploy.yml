@@ -83,32 +83,46 @@ jobs:
           echo "Generated fresh ed25519 key pair in runner"
         id: gen_key
 
-      - name: Add public key to server (via SSH)
-        uses: appleboy/ssh-action@v0.1.10
-        with:
-          host: ${{ inputs.hostinger_sftp_host || secrets.HOSTINGER_SFTP_HOST }}
-          username: ${{ inputs.hostinger_sftp_user || secrets.HOSTINGER_SFTP_USER }}
-          password: ${{ inputs.hostinger_ssh_password || secrets.HOSTINGER_SSH_PASSWORD }}
-          port: 22
-          script: |
+      - name: Install sshpass and rsync
+        run: |
+          apt-get update -qq && apt-get install -y -qq sshpass rsync > /dev/null 2>&1
+          echo "sshpass version: $(sshpass -V | head -1)"
+          echo "rsync version: $(rsync --version | head -1)"
+
+      - name: Add public key to server and deploy via SSH
+        run: |
+          HOST="${{ inputs.hostinger_sftp_host || secrets.HOSTINGER_SFTP_HOST }}"
+          USER="${{ inputs.hostinger_sftp_user || secrets.HOSTINGER_SFTP_USER }}"
+          PASS="${{ inputs.hostinger_ssh_password || secrets.HOSTINGER_SSH_PASSWORD }}"
+          PUB_KEY="${{ steps.gen_key.outputs.PUBLIC_KEY }}"
+
+          # Step 1: Add the public key to the server using SSH with password
+          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o BatchMode=no "$USER@$HOST" << 'SSHEOF'
             mkdir -p ~/.ssh
             chmod 700 ~/.ssh
-            echo "${{ steps.gen_key.outputs.PUBLIC_KEY }}" >> ~/.ssh/authorized_keys
+            printf '%s\n' "$PUB_KEY" >> ~/.ssh/authorized_keys
             chmod 600 ~/.ssh/authorized_keys
-            echo "Key added to authorized_keys"
-            grep -c "${{ steps.gen_key.outputs.PUBLIC_KEY }}" ~/.ssh/authorized_keys || exit 1
+            echo "Public key added to authorized_keys"
+          SSHEOF
 
-      - name: Deploy to Hostinger via SFTP
-        uses: easingthemes/ssh-deploy@v5.1.0
+          # Step 2: Verify key-based SSH works
+          echo "Verifying SSH key authentication..."
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o BatchMode=yes -o ConnectTimeout=10 \
+              -i "$HOME/.ssh/deploy_key" "$USER@$HOST" echo "SSH key auth SUCCESS"
+
+          # Step 3: Deploy using rsync over SSH with the generated key
+          echo "Starting rsync deployment..."
+          sshpass -e rsync -avz --delete \
+            -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i $HOME/.ssh/deploy_key" \
+            --exclude='.git' --exclude='node_modules' --exclude='src' --exclude='.env' \
+            ./ "$USER@$HOST:/public_html/"
+
+          echo "Deployment complete!"
+
         env:
-          HOST: ${{ inputs.hostinger_sftp_host || secrets.HOSTINGER_SFTP_HOST }}
-          USERNAME: ${{ inputs.hostinger_sftp_user || secrets.HOSTINGER_SFTP_USER }}
-          PORT: '22'
-          SOURCE: './'
-          TARGET: '/public_html/'
-          SSH_KEY: ${{ steps.gen_key.outputs.SSH_KEY }}
-          ARGS: '-rlvz --delete'
-          EXCLUDE: '/.git/ /node_modules/ /src/ /.env*'
+          SSHPASS: ${{ inputs.hostinger_ssh_password || secrets.HOSTINGER_SSH_PASSWORD }}
 
       - name: Verify deployment
         run: |
@@ -119,8 +133,6 @@ jobs:
   deploy-cloudflare:
     needs: build
     runs-on: ubuntu-latest
-    # Only run if CLOUDFLARE_API_TOKEN was explicitly provided (workflow_dispatch with token, or repo secret set)
-    # github.event.inputs.xxx is undefined for push/repository_dispatch → condition is false → job skipped
     if: github.event.inputs.cloudflare_api_token != ''
     steps:
       - name: Download build artifact
