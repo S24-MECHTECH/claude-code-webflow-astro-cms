@@ -20,37 +20,89 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
-      - name: Fetch Webflow Data
+      - name: Fetch Webflow collection items
         run: |
           node -e "
             const https = require('https');
+            const fs = require('fs');
             const apiToken = process.env.WEBFLOW_API_TOKEN;
-            const siteId = '6826b5c28a9bb669ef7d7b1f';
-            const options = {
-              hostname: 'api.webflow.com',
-              path: '/v1/sites/' + siteId + '/collections',
-              headers: { 'Authorization': 'Bearer ' + apiToken, 'Accept': 'application/json' }
-            };
-            https.get(options, res => {
-              let data = '';
-              res.on('data', chunk => data += chunk);
-              res.on('end', () => {
-                try {
-                  const collections = JSON.parse(data);
-                  console.log('Collections:', JSON.stringify(collections, null, 2));
-                } catch(e) {
-                  console.error('Parse error:', e.message);
-                  console.log('Raw data:', data.substring(0, 500));
-                }
+            const collectionId = '6826b5c28a9bb669ef7d7b1f';
+
+            function fetchAll(url) {
+              return new Promise((resolve, reject) => {
+                const parsedUrl = new URL(url);
+                const options = {
+                  hostname: parsedUrl.hostname,
+                  path: parsedUrl.pathname + parsedUrl.search,
+                  headers: {
+                    'Authorization': 'Bearer ' + apiToken,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                  },
+                };
+                https.get(options, res => {
+                  let data = '';
+                  res.on('data', chunk => data += chunk);
+                  res.on('end', () => {
+                    try {
+                      resolve(JSON.parse(data));
+                    } catch(e) {
+                      reject(new Error('Parse error: ' + e.message + ' | Raw: ' + data.substring(0, 200)));
+                    }
+                  });
+                }).on('error', reject);
               });
-            }).on('error', e => console.error('Request error:', e.message));
+            }
+
+            async function syncCollection() {
+              const baseUrl = 'https://api.webflow.com';
+              const items = [];
+              let cursor = null;
+
+              do {
+                const searchParams = new URLSearchParams({ limit: '100' });
+                if (cursor) searchParams.set('offset', cursor);
+
+                const url = baseUrl + '/v2/collections/' + collectionId + '/items?' + searchParams.toString();
+                const data = await fetchAll(url);
+                console.log('Fetched', data.items?.length || 0, 'items, total:', data.total || 'unknown');
+                if (data.items) items.push(...data.items);
+                cursor = data.cursor || null;
+              } while (cursor);
+
+              // Transform items
+              const transformed = items
+                .filter(item => item.slug && item.name)
+                .map(item => ({
+                  _id: item._id,
+                  slug: item.slug,
+                  name: item.name,
+                  'post-body': item['post-body'] || item.body || '',
+                  'published-on': item['published-on'] || null,
+                  _meta: {
+                    webflowId: item._id,
+                    lastModified: item['updated-at'] || new Date().toISOString(),
+                  },
+                }));
+
+              // Write to src/data/
+              fs.mkdirSync('src/data', { recursive: true });
+              fs.writeFileSync('src/data/posts.json', JSON.stringify(transformed, null, 2));
+              console.log('Written', transformed.length, 'items to src/data/posts.json');
+              console.log('First item:', JSON.stringify(transformed[0], null, 2));
+            }
+
+            syncCollection().catch(e => {
+              console.error('Sync failed:', e.message);
+              process.exit(1);
+            });
           "
         env:
           WEBFLOW_API_TOKEN: ${{ secrets.WEBFLOW_API_TOKEN }}
 
-      - name: Commit data
+      - name: Commit and push data
         run: |
           git config user.name 'github-actions[bot]' || true
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com' || true
@@ -58,7 +110,7 @@ jobs:
           if git diff --staged --quiet; then
             echo 'No changes to commit'
           else
-            git commit -m 'chore: sync Webflow data'
+            git commit -m 'chore: sync Webflow data $(date -u +"%Y-%m-%dT%H:%M:%SZ")'
             git push
           fi
         env:
