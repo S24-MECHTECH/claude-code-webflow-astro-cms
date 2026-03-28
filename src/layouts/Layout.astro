@@ -1,0 +1,74 @@
+---
+export interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description = 'Astro blog powered by Webflow CMS' } = Astro.props;
+---
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      :root {
+        --bg: #0a0a0a;
+        --surface: #141414;
+        --border: #222;
+        --text: #e5e5e5;
+        --text-muted: #888;
+        --accent: #6366f1;
+        --accent-hover: #818cf8;
+      }
+      html { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); }
+      body { min-height: 100vh; display: flex; flex-direction: column; }
+      nav {
+        border-bottom: 1px solid var(--border);
+        padding: 1rem 2rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        background: var(--surface);
+      }
+      nav a {
+        color: var(--text);
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 1.1rem;
+        letter-spacing: -0.02em;
+      }
+      nav a:hover { color: var(--accent); }
+      main { flex: 1; max-width: 720px; margin: 0 auto; padding: 3rem 1.5rem; width: 100%; }
+      footer {
+        border-top: 1px solid var(--border);
+        padding: 1.5rem 2rem;
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 0.875rem;
+      }
+      footer a { color: var(--text-muted); text-decoration: underline; }
+      footer a:hover { color: var(--accent); }
+      h1, h2, h3 { letter-spacing: -0.02em; line-height: 1.2; }
+      a { color: var(--accent); }
+      a:hover { color: var(--accent-hover); }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <a href="/">Blog</a>
+    </nav>
+    <main>
+      <slot />
+    </main>
+    <footer>
+      <p>Powered by <a href="https://astro.build" target="_blank" rel="noopener">Astro</a> &amp; <a href="https://webflow.com" target="_blank" rel="noopener">Webflow CMS</a></p>
+    </footer>
+  </body>
+</html>

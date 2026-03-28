@@ -1,0 +1,60 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { getCollection } from '../lib/webflow';
+
+const SITE_ID = '6826b5c28a9bb669ef7d7b1f';
+const COLLECTION_ID = '6826b5c28a9bb669ef7d7b1f';
+
+let posts: Awaited<ReturnType<typeof getCollection>> = [];
+try {
+  posts = await getCollection(COLLECTION_ID);
+} catch (e) {
+  console.error('Failed to load posts:', e);
+}
+
+// Sort by published date, newest first
+posts.sort((a, b) => {
+  const dateA = a['published-on'] ? new Date(a['published-on']).getTime() : 0;
+  const dateB = b['published-on'] ? new Date(b['published-on']).getTime() : 0;
+  return dateB - dateA;
+});
+---
+
+<Layout title="Blog | Astro + Webflow CMS">
+  <header style="margin-bottom: 3rem;">
+    <h1 style="font-size: 2.5rem; margin-bottom: 0.5rem;">Blog</h1>
+    <p style="color: var(--text-muted); font-size: 1.1rem;">Astro static site powered by Webflow CMS content</p>
+  </header>
+
+  {posts.length === 0 ? (
+    <div style="padding: 3rem 0; text-align: center; color: var(--text-muted);">
+      <p style="font-size: 1.1rem; margin-bottom: 0.5rem;">Noch keine Beiträge.</p>
+      <p>Veröffentliche Inhalte in deinem Webflow CMS, um sie hier anzuzeigen.</p>
+    </div>
+  ) : (
+    <ul style="list-style: none; display: flex; flex-direction: column; gap: 2rem;">
+      {posts.map((post) => (
+        <li style="border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface);">
+          <a
+            href={`/${post.slug}/`}
+            style="display: block; padding: 1.5rem; text-decoration: none; color: inherit; transition: background 0.2s;"
+          >
+            <h2 style="font-size: 1.35rem; margin-bottom: 0.5rem; color: var(--text);">{post.name}</h2>
+            {post['published-on'] && (
+              <time
+                datetime={post['published-on']}
+                style="font-size: 0.875rem; color: var(--text-muted);"
+              >
+                {new Date(post['published-on']).toLocaleDateString('de-DE', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
+                })}
+              </time>
+            )}
+          </a>
+        </li>
+      ))}
+    </ul>
+  )}
+</Layout>
