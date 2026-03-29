@@ -1,11 +1,32 @@
 name: Webflow Sync
+
+# Trigger: repository_dispatch (von n8n) ODER manuell (workflow_dispatch)
 on:
   repository_dispatch:
     types: [webflow-update]
   workflow_dispatch:
+    inputs:
+      webflow_api_token:
+        description: 'WEBFLOW_API_TOKEN — Webflow API Access Token'
+        required: false
+        type: string
+      collection_id:
+        description: 'Webflow Collection ID (aus .env: S24_CMS_CONTENT_SIDES)'
+        required: false
+        type: string
+      site_id:
+        description: 'Webflow Site ID (aus .env: WEBFLOW_SITE_ID)'
+        required: false
+        type: string
+      webflow_api_token_secret:
+        description: 'WEBFLOW_API_TOKEN via GitHub Secret (fallback)'
+        required: false
+        type: string
 
-permissions:
-  contents: write
+env:
+  COLLECTION_ID: ${{ inputs.collection_id || github.event.client_payload.collection_id || '68d361b0271a5d106adb4d4a' }}
+  SITE_ID: ${{ inputs.site_id || github.event.client_payload.site_id || '68d2fd81a3e41128755efbe7' }}
+  WEBFLOW_API_TOKEN: ${{ inputs.webflow_api_token || github.event.client_payload.webflow_api_token || inputs.webflow_api_token_secret || secrets.WEBFLOW_API_TOKEN }}
 
 jobs:
   sync:
@@ -17,104 +38,181 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Fetch Webflow collection items
+      - name: Debug env
         run: |
-          node -e "
-            const https = require('https');
-            const fs = require('fs');
-            const apiToken = process.env.WEBFLOW_API_TOKEN;
-            const collectionId = '6826b5c28a9bb669ef7d7b1f';
+          echo "COLLECTION_ID: $COLLECTION_ID"
+          echo "SITE_ID: $SITE_ID"
+          echo "WEBFLOW_API_TOKEN set: $([ -n \"$WEBFLOW_API_TOKEN\" ] && echo 'YES' || echo 'NO (empty)')"
+          echo "GitHub event: ${{ github.event_name }}"
+          echo "Client payload: ${{ toJSON(github.event.client_payload) }}"
 
-            function fetchAll(url) {
-              return new Promise((resolve, reject) => {
-                const parsedUrl = new URL(url);
-                const options = {
-                  hostname: parsedUrl.hostname,
-                  path: parsedUrl.pathname + parsedUrl.search,
-                  headers: {
-                    'Authorization': 'Bearer ' + apiToken,
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                  },
-                };
-                https.get(options, res => {
-                  let data = '';
-                  res.on('data', chunk => data += chunk);
-                  res.on('end', () => {
-                    try {
-                      resolve(JSON.parse(data));
-                    } catch(e) {
-                      reject(new Error('Parse error: ' + e.message + ' | Raw: ' + data.substring(0, 200)));
+      - name: Fetch Webflow items
+        id: fetch
+        run: |
+          cat << 'SCRIPT' > /tmp/fetch-webflow.js
+          const https = require('https');
+          const http = require('http');
+          const fs = require('fs');
+
+          const token = process.env.WEBFLOW_API_TOKEN;
+          const collectionId = process.env.COLLECTION_ID;
+          const siteId = process.env.SITE_ID;
+          const allItems = [];
+          let offset = 0;
+          const limit = 100;
+
+          function fetchPage(offset) {
+            return new Promise((resolve, reject) => {
+              const url = `https://api.webflow.com/v2/sites/${siteId}/collections/${collectionId}/items?limit=${limit}&offset=${offset}`;
+              console.log(`Fetching offset=${offset}...`);
+
+              const req = https.request(url, {
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Accept': 'application/json',
+                  'User-Agent': 'GitHub-Actions-Webflow-Sync/1.0'
+                }
+              }, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                  if (res.statusCode !== 200) {
+                    console.error(`HTTP ${res.statusCode}: ${data}`);
+                    reject(new Error(`Webflow API error: ${res.statusCode}`));
+                    return;
+                  }
+                  try {
+                    const json = JSON.parse(data);
+                    const items = json.items || [];
+                    console.log(`  Got ${items.length} items (total: ${json.total || 'unknown'})`);
+                    allItems.push(...items);
+                    if (items.length === limit) {
+                      fetchPage(offset + limit).then(resolve).catch(reject);
+                    } else {
+                      resolve();
                     }
-                  });
-                }).on('error', reject);
+                  } catch (e) {
+                    reject(e);
+                  }
+                });
               });
-            }
-
-            async function syncCollection() {
-              const baseUrl = 'https://api.webflow.com';
-              const items = [];
-              let cursor = null;
-
-              do {
-                const searchParams = new URLSearchParams({ limit: '100' });
-                if (cursor) searchParams.set('offset', cursor);
-
-                const url = baseUrl + '/v2/collections/' + collectionId + '/items?' + searchParams.toString();
-                const data = await fetchAll(url);
-                console.log('Fetched', data.items?.length || 0, 'items, total:', data.total || 'unknown');
-                if (data.items) items.push(...data.items);
-                cursor = data.cursor || null;
-              } while (cursor);
-
-              // Transform items
-              const transformed = items
-                .filter(item => item.slug && item.name)
-                .map(item => ({
-                  _id: item._id,
-                  slug: item.slug,
-                  name: item.name,
-                  'post-body': item['post-body'] || item.body || '',
-                  'published-on': item['published-on'] || null,
-                  _meta: {
-                    webflowId: item._id,
-                    lastModified: item['updated-at'] || new Date().toISOString(),
-                  },
-                }));
-
-              // Write to src/data/
-              fs.mkdirSync('src/data', { recursive: true });
-              fs.writeFileSync('src/data/posts.json', JSON.stringify(transformed, null, 2));
-              console.log('Written', transformed.length, 'items to src/data/posts.json');
-              console.log('First item:', JSON.stringify(transformed[0], null, 2));
-            }
-
-            syncCollection().catch(e => {
-              console.error('Sync failed:', e.message);
-              process.exit(1);
+              req.on('error', reject);
+              req.setTimeout(30000, () => { req.destroy(); reject(new Error('Request timeout')); });
+              req.end();
             });
-          "
-        env:
-          WEBFLOW_API_TOKEN: ${{ secrets.WEBFLOW_API_TOKEN }}
+          }
 
-      - name: Commit and push data
+          fetchPage(0).then(() => {
+            console.log(`Total items fetched: ${allItems.length}`);
+            fs.writeFileSync('/tmp/webflow-items.json', JSON.stringify(allItems, null, 2));
+            console.log('Saved to /tmp/webflow-items.json');
+          }).catch(e => {
+            console.error('Fetch failed:', e.message);
+            process.exit(1);
+          });
+          SCRIPT
+
+          node /tmp/fetch-webflow.js
+
+      - name: Transform to Astro data format
         run: |
-          git config user.name 'github-actions[bot]' || true
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com' || true
-          git add src/data/
-          if git diff --staged --quiet; then
-            echo 'No changes to commit'
-          else
-            git commit -m 'chore: sync Webflow data $(date -u +"%Y-%m-%dT%H:%M:%SZ")'
-            git push
+          cat << 'SCRIPT' > /tmp/transform.js
+          const fs = require('fs');
+          const items = JSON.parse(fs.readFileSync('/tmp/webflow-items.json', 'utf8'));
+
+          // Map Webflow items to Astro-compatible format
+          const posts = items
+            .filter(item => item._archived === false && item._draft === false)
+            .map(item => {
+              // Build slug from slug field or name
+              const slug = item.slug || (item.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+              return {
+                id: item._id,
+                slug: slug,
+                name: item.name || item.slug || 'Untitled',
+                // SEO fields
+                'seo-title': item['seo-title'] || item.name || '',
+                'seo-description': item['seo-description'] || '',
+                // Content
+                'content-article': item['content-article'] || '',
+                'faq-section': item['faq-section'] || '',
+                // Hero
+                'hero-heading-2': item['hero-heading-2'] || item.name || '',
+                'hero-subheading-2': item['hero-subheading-2'] || '',
+                'hero-banner': item['hero-banner'] || '',
+                'hero-ready': item['hero-ready'] || false,
+                'hero-cta-text': item['hero-cta-text'] || '',
+                'hero-cta-url': item['hero-cta-url'] || '',
+                // OG
+                'og-title-2': item['og-title-2'] || item.name || '',
+                'og-description-2': item['og-description-2'] || '',
+                'og-image-3': item['og-image-3'] || '',
+                // Product fields
+                brand: item.brand || '',
+                model: item.model || '',
+                ean: item.ean || '',
+                price: item.price || '',
+                currency: item.currency || '',
+                description: item.description || '',
+                // Meta
+                'published-on': item['published-on'] || null,
+                'updated-at': item['updated-at'] || null,
+                'created-on': item['created-on'] || null,
+                _archived: item._archived || false,
+                _draft: item._draft || false,
+              };
+            });
+
+          console.log(`Transformed ${posts.length} posts`);
+
+          // Write src/data/posts.json
+          const outputDir = 'src/data';
+          if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+          fs.writeFileSync(`${outputDir}/posts.json`, JSON.stringify(posts, null, 2));
+          console.log(`Written to ${outputDir}/posts.json`);
+
+          // Also write individual post files for dynamic routing
+          posts.forEach(post => {
+            const postDir = `src/pages/posts`;
+            if (!fs.existsSync(postDir)) fs.mkdirSync(postDir, { recursive: true });
+            fs.writeFileSync(`${postDir}/${post.slug}.json`, JSON.stringify(post, null, 2));
+          });
+          console.log(`Written ${posts.length} individual post files`);
+          SCRIPT
+
+          node /tmp/transform.js
+
+      - name: Show changes
+        run: |
+          echo "=== Data files changed ==="
+          git diff --stat src/data/ || echo "(no previous data)"
+
+          echo "=== Posts summary ==="
+          if [ -f src/data/posts.json ]; then
+            echo "Posts count: $(node -e "console.log(require('./src/data/posts.json').length)")"
+            node -e "
+              const posts = require('./src/data/posts.json');
+              posts.slice(0,3).forEach(p => console.log('  - ' + p.slug + ': ' + p.name));
+              if (posts.length > 3) console.log('  ... and ' + (posts.length-3) + ' more');
+            "
           fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit and push
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+
+          # Only commit if data actually changed
+          if git diff --quiet src/data/; then
+            echo "No data changes — skipping commit"
+          else
+            git add src/data/
+            git commit -m "chore: sync Webflow data $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+
+            Triggered by: ${{ github.event_name }}
+            Collection: ${{ env.COLLECTION_ID }}
+            Items: $(node -e "try{console.log(require('./src/data/posts.json').length)}catch(e){console.log('?')}")"
+            git push
+            echo "Data pushed to GitHub!"
+          fi
