@@ -15,42 +15,53 @@ on:
   workflow_dispatch:
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Astro
+        run: npm run build
+        env:
+          WEBFLOW_API_TOKEN: ${{ secrets.WEBFLOW_API_TOKEN }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 1
+
   # === HOSTINGER DEPLOYMENT (realdollz.de) ===
   deploy-hostinger-realdollz:
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
       deployments: write
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
         with:
-          node-version: '20'
-
-      - name: Install Dependencies
-        run: npm install
-
-      - name: Build Astro
-        run: npm run build 2>&1 | tee build.log; exit ${PIPESTATUS[0]}
-
-      - name: Upload build log
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log-hostinger
-          path: build.log
-          retention-days: 1
+          name: dist
 
       - name: Deploy to Hostinger (realdollz.de)
         uses: easingthemes/ssh-deploy@v5.1.0
         with:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SFTP_KEY }}
           REMOTE_HOST: ${{ secrets.HOSTINGER_SFTP_HOST }}
-          REMOTE_PORT: ${{ secrets.HOSTINGER_SFTP_PORT }}
           REMOTE_USER: ${{ secrets.HOSTINGER_SFTP_USER }}
           SOURCE: 'dist'
           TARGET: '/home/u781914439/domains/realdollz.de/public_html'
@@ -69,32 +80,23 @@ jobs:
 
   # === HOSTINGER DEPLOYMENT (realdollz.cloud) ===
   deploy-hostinger-realdollz-cloud:
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
       deployments: write
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
         with:
-          node-version: '20'
-
-      - name: Install Dependencies
-        run: npm install
-
-      - name: Build Astro
-        run: npm run build 2>&1 | tee build.log; exit ${PIPESTATUS[0]}
+          name: dist
 
       - name: Deploy to Hostinger (realdollz.cloud)
         uses: easingthemes/ssh-deploy@v5.1.0
         with:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SFTP_KEY }}
           REMOTE_HOST: ${{ secrets.HOSTINGER_SFTP_HOST }}
-          REMOTE_PORT: ${{ secrets.HOSTINGER_SFTP_PORT }}
           REMOTE_USER: ${{ secrets.HOSTINGER_SFTP_USER }}
           SOURCE: 'dist'
           TARGET: '/home/u781914439/domains/yellowgreen-pelican-492933.hostingersite.com/public_html'
@@ -113,38 +115,28 @@ jobs:
 
   # === CLOUDFLARE PAGES DEPLOYMENT ===
   deploy-cloudflare:
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
       deployments: write
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
         with:
-          node-version: '20'
-
-      - name: Install Dependencies
-        run: npm install
-
-      - name: Build Astro
-        run: npm run build 2>&1 | tee build.log; exit ${PIPESTATUS[0]}
+          name: dist
 
       - name: Deploy to Cloudflare Pages
-        if: success()
         uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: 38dad218e1092829145d4940b0f2292c
-          projectName: s24-mechtech
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: s24-cms-content-site
           directory: dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify Cloudflare deployment
-        if: success()
         run: |
           echo "Cloudflare Pages deployment complete"
-          echo "Project: s24-mechtech"
+          echo "Project: s24-cms-content-site"
