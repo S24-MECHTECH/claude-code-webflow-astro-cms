@@ -15,13 +15,11 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           ssh-keygen -t ed25519 -C "github-actions-realdollz" -f ~/.ssh/deploy_key -N ""
-          PUBLIC_KEY=$(cat ~/.ssh/deploy_key.pub)
+          PUBLIC_KEY=
           echo "public_key<<EOF" >> $GITHUB_OUTPUT
           echo "$PUBLIC_KEY" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           echo "Generated: $PUBLIC_KEY"
-          echo "PRIVATE_KEY=$(cat ~/.ssh/deploy_key)" >> $GITHUB_OUTPUT
-          echo "Private key ready for upload"
 
       - name: Upload private key artifact
         uses: actions/upload-artifact@v4
