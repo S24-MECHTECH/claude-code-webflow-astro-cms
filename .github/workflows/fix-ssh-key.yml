@@ -5,6 +5,8 @@ on:
 jobs:
   fix-ssh:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       public_key: ${{ steps.gen_key.outputs.public_key }}
     steps:
@@ -18,3 +20,17 @@ jobs:
           echo "$PUBLIC_KEY" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           echo "Generated: $PUBLIC_KEY"
+          echo "PRIVATE_KEY=$(cat ~/.ssh/deploy_key)" >> $GITHUB_OUTPUT
+          echo "Private key ready for upload"
+
+      - name: Upload private key artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssh-private-key
+          path: ~/.ssh/deploy_key
+          retention-days: 1
+
+      - name: Debug artifact upload
+        run: |
+          echo "Private key size: $(wc -c < ~/.ssh/deploy_key)"
+          echo "Artifact uploaded as ssh-private-key"
