@@ -57,26 +57,62 @@ jobs:
         with:
           name: dist
 
-      - name: Deploy to Hostinger (realdollz.de)
-        uses: easingthemes/ssh-deploy@v5.1.0
-        with:
-          SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SFTP_KEY }}
-          REMOTE_HOST: ${{ secrets.HOSTINGER_SFTP_HOST }}
-          REMOTE_USER: ${{ secrets.HOSTINGER_SFTP_USER }}
-          SOURCE: 'dist'
-          TARGET: '/home/u781914439/domains/realdollz.de/public_html'
-          EXCLUDE: |
-            .git
-            .gitignore
-            node_modules
-            .env
-            "*.log"
-          ARGS: '--delete'
-
-      - name: Verify Hostinger deployment (realdollz.de)
+      - name: Debug - Check secrets presence
         run: |
-          echo "Hostinger deployment complete"
-          echo "Site: https://realdollz.de"
+          echo "=== Secrets Debug ==="
+          echo "HOST present: "${HOSTINGER_SFTP_HOST:+YES}" (${HOSTINGER_SFTP_HOST})"
+          echo "USER present: "${HOSTINGER_SFTP_USER:+YES}" (${HOSTINGER_SFTP_USER})"
+          echo "KEY length: "${#HOSTINGER_SFTP_KEY}
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${HOSTINGER_SFTP_KEY}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          echo "Key stored, length:" $(wc -c < ~/.ssh/deploy_key)
+          echo "First 30 chars:" $(head -c 30 ~/.ssh/deploy_key)
+
+      - name: Test SSH connection with verbose debug
+        run: |
+          echo "=== SSH Connection Test ==="
+          echo "Target: "${HOSTINGER_SFTP_USER}"@"${HOSTINGER_SFTP_HOST}
+          echo "Key file exists:" $(test -f ~/.ssh/deploy_key && echo YES || echo NO)
+          echo "Key permissions:" $(stat -c %a ~/.ssh/deploy_key 2>/dev/null || stat -f %Lp ~/.ssh/deploy_key 2>/dev/null)
+          echo ""
+          echo "--- Attempting SSH (verbose) ---"
+          ssh -vvv \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o PreferredAuthentications=publickey \
+            -i "$HOME/.ssh/deploy_key" \
+            "${HOSTINGER_SFTP_USER}@${HOSTINGER_SFTP_HOST}" \
+            'echo SSH_OK; uptime' 2>&1 | tee ssh_debug.log
+          SSH_EXIT=${PIPESTATUS[0]}
+          echo ""
+          echo "SSH exit code: "$SSH_EXIT
+          echo "=== END SSH TEST ==="
+
+      - name: Deploy via rsync (realdollz.de)
+        if: always()
+        run: |
+          echo "=== RSYNC DEPLOY (realdollz.de) ==="
+          echo "Source dir contents:"
+          ls -la
+          echo ""
+          rsync -avz --delete \
+            -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o PreferredAuthentications=publickey -i $HOME/.ssh/deploy_key" \
+            --exclude='.git' --exclude='node_modules' --exclude='.env' \
+            --exclude='*.log' \
+            ./ \
+            "${HOSTINGER_SFTP_USER}@${HOSTINGER_SFTP_HOST}:/home/u781914439/domains/realdollz.de/public_html/" 2>&1
+          echo "rsync exit: "$?
+
+      - name: Verify deployment (realdollz.de)
+        run: |
+          echo "Deployment step complete - realdollz.de"
+          echo "Build dir still present:" $(ls -la dist/ 2>/dev/null | head -2 || echo 'dist dir exists')
 
   # === HOSTINGER DEPLOYMENT (realdollz.cloud) ===
   deploy-hostinger-realdollz-cloud:
@@ -92,26 +128,26 @@ jobs:
         with:
           name: dist
 
-      - name: Deploy to Hostinger (realdollz.cloud)
-        uses: easingthemes/ssh-deploy@v5.1.0
-        with:
-          SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SFTP_KEY }}
-          REMOTE_HOST: ${{ secrets.HOSTINGER_SFTP_HOST }}
-          REMOTE_USER: ${{ secrets.HOSTINGER_SFTP_USER }}
-          SOURCE: 'dist'
-          TARGET: '/home/u781914439/domains/yellowgreen-pelican-492933.hostingersite.com/public_html'
-          EXCLUDE: |
-            .git
-            .gitignore
-            node_modules
-            .env
-            "*.log"
-          ARGS: '--delete'
-
-      - name: Verify Hostinger deployment (realdollz.cloud)
+      - name: Setup SSH key
         run: |
-          echo "Hostinger deployment complete"
-          echo "Site: https://realdollz.cloud"
+          mkdir -p ~/.ssh
+          echo "${HOSTINGER_SFTP_KEY}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Deploy via rsync (realdollz.cloud)
+        run: |
+          echo "=== RSYNC DEPLOY (realdollz.cloud) ==="
+          rsync -avz --delete \
+            -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o PreferredAuthentications=publickey -i $HOME/.ssh/deploy_key" \
+            --exclude='.git' --exclude='node_modules' --exclude='.env' \
+            --exclude='*.log' \
+            ./ \
+            "${HOSTINGER_SFTP_USER}@${HOSTINGER_SFTP_HOST}:/home/u781914439/domains/yellowgreen-pelican-492933.hostingersite.com/public_html/" 2>&1
+          echo "rsync exit: "$?
+
+      - name: Verify deployment (realdollz.cloud)
+        run: |
+          echo "Deployment step complete - realdollz.cloud"
 
   # === CLOUDFLARE PAGES DEPLOYMENT ===
   deploy-cloudflare:
@@ -127,6 +163,14 @@ jobs:
         with:
           name: dist
 
+      - name: Debug Cloudflare secrets
+        run: |
+          echo "=== Cloudflare Secrets Debug ==="
+          echo "CLOUDFLARE_ACCOUNT_ID length:" ${#CLOUDFLARE_ACCOUNT_ID}
+          echo "CLOUDFLARE_API_TOKEN length:" ${#CLOUDFLARE_API_TOKEN}
+          echo "dist contents:"
+          ls -la dist/ 2>/dev/null | head -5 || echo "dist dir not found"
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1
         with:
@@ -139,4 +183,3 @@ jobs:
       - name: Verify Cloudflare deployment
         run: |
           echo "Cloudflare Pages deployment complete"
-          echo "Project: s24-cms-content-site"
