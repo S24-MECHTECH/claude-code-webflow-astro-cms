@@ -1,0 +1,43 @@
+name: Cleanup Failed Runs
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Alle fehlgeschlagenen Runs löschen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Lade alle fehlgeschlagenen Runs..."
+          
+          # Alle failure runs holen und löschen (mehrere Seiten)
+          for status in failure cancelled; do
+            page=1
+            while true; do
+              runs=$(gh api \
+                "repos/S24-MECHTECH/claude-code-webflow-astro-cms/actions/runs?status=${status}&per_page=100&page=${page}" \
+                --jq '.workflow_runs[].id' 2>/dev/null)
+              
+              if [ -z "$runs" ]; then
+                echo "Keine weiteren ${status} runs auf Seite ${page}"
+                break
+              fi
+              
+              echo "Seite ${page}: $(echo "$runs" | wc -l) ${status} runs gefunden"
+              
+              while IFS= read -r run_id; do
+                echo "Lösche Run ${run_id}..."
+                gh api --method DELETE "repos/S24-MECHTECH/claude-code-webflow-astro-cms/actions/runs/${run_id}" && echo "  ✓ ${run_id} gelöscht" || echo "  ✗ ${run_id} Fehler"
+              done <<< "$runs"
+              
+              page=$((page + 1))
+            done
+          done
+          
+          echo "Fertig! Verbleibende Runs:"
+          gh api "repos/S24-MECHTECH/claude-code-webflow-astro-cms/actions/runs?per_page=10" --jq '.workflow_runs[] | "\(.conclusion // "running") \(.name) #\(.run_number)"'
