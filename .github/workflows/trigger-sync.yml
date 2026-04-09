@@ -1,0 +1,15 @@
+name: Webflow Sync Trigger (Temp)
+on:
+  workflow_dispatch:
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Webflow Sync auslösen
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/S24-MECHTECH/claude-code-webflow-astro-cms/dispatches \
+            -d '{"event_type":"webflow-update","client_payload":{"triggered_by":"manual-test","collection_id":"68d361b0271a5d106adb4d4a","site_id":"68d2fd81a3e41128755efbe7","webflow_api_token":"cb07f5cf4719b948ffe39b9a60de5ac10baf34968992975fae2e6f61efef5e2e"}}'
+          echo "Dispatch gesendet!"
