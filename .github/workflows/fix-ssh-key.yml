@@ -1,34 +1,9 @@
-name: Fix SSH Key
+# DEAKTIVIERT
+name: '[DEAKTIVIERT] Fix SSH Key'
 on:
   workflow_dispatch:
-
 jobs:
-  fix-ssh:
+  info:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      public_key: ${{ steps.gen_key.outputs.public_key }}
     steps:
-      - name: Generate new ed25519 SSH key
-        id: gen_key
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keygen -t ed25519 -C "github-actions-realdollz" -f ~/.ssh/deploy_key -N ""
-          PUBLIC_KEY=
-          echo "public_key<<EOF" >> $GITHUB_OUTPUT
-          echo "$PUBLIC_KEY" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "Generated: $PUBLIC_KEY"
-
-      - name: Upload private key artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ssh-private-key
-          path: ~/.ssh/deploy_key
-          retention-days: 1
-
-      - name: Debug artifact upload
-        run: |
-          echo "Private key size: $(wc -c < ~/.ssh/deploy_key)"
-          echo "Artifact uploaded as ssh-private-key"
+      - run: echo 'Deaktiviert.'

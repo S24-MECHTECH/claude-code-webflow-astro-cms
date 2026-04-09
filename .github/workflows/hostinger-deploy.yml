@@ -1,127 +1,14 @@
-name: Hostinger Deploy
-
+# DEAKTIVIERT - ersetzt durch deploy-astro.yml
+# Dieser Workflow wird nicht mehr automatisch getriggert.
+name: '[DEAKTIVIERT] Hostinger Deploy'
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/data/**'
-      - 'src/pages/**'
-      - 'src/components/**'
-      - 'src/layouts/**'
-      - 'src/lib/**'
-      - 'astro.config.*'
-      - 'package.json'
   workflow_dispatch:
     inputs:
-      hostinger_sftp_host:
-        description: 'HOSTINGER_SFTP_HOST (e.g. 72.61.80.236)'
+      reason:
+        description: 'Dieser Workflow ist deaktiviert'
         required: false
-        type: string
-      hostinger_sftp_user:
-        description: 'HOSTINGER_SFTP_USER (e.g. root)'
-        required: false
-        type: string
-      hostinger_sftp_key:
-        description: 'HOSTINGER_SFTP_KEY — SSH private key (ed25519)'
-        required: false
-        type: string
-      cloudflare_api_token:
-        description: 'CLOUDFLARE_API_TOKEN'
-        required: false
-        type: string
-      cloudflare_account_id:
-        description: 'CLOUDFLARE_ACCOUNT_ID'
-        required: false
-        type: string
-  repository_dispatch:
-    types: [webflow-update]
-
 jobs:
-  build:
+  info:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build Astro
-        run: npm run build
-        env:
-          WEBFLOW_API_TOKEN: ${{ secrets.WEBFLOW_API_TOKEN }}
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-          retention-days: 1
-
-  deploy-hostinger:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-
-      - name: Deploy to Hostinger via rsync + SSH key
-        run: |
-          HOST="${{ inputs.hostinger_sftp_host || secrets.HOSTINGER_SFTP_HOST }}"
-          USER="${{ inputs.hostinger_sftp_user || secrets.HOSTINGER_SFTP_USER }}"
-          KEY="${{ inputs.hostinger_sftp_key || secrets.HOSTINGER_SFTP_KEY }}"
-
-          mkdir -p ~/.ssh
-          echo "$KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-
-          echo "=== Testing SSH connection ==="
-          ssh -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null \
-              -o BatchMode=yes \
-              -o ConnectTimeout=30 \
-              -o PreferredAuthentications=publickey \
-              -i "$HOME/.ssh/deploy_key" \
-              "$USER@$HOST" echo "SSH key auth SUCCESS"
-
-          echo "=== Starting rsync deployment ==="
-          rsync -avz --delete \
-            -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o PreferredAuthentications=publickey -i $HOME/.ssh/deploy_key" \
-            --exclude='.git' --exclude='node_modules' --exclude='src' --exclude='.env' \
-            ./ "$USER@$HOST:/public_html/"
-
-          echo "Deployment to Hostinger complete!"
-
-      - name: Verify deployment
-        run: |
-          echo 'Build artifact deployed to Hostinger!'
-          ls -la
-
-  deploy-cloudflare:
-    needs: build
-    runs-on: ubuntu-latest
-    # Deploy whenever CLOUDFLARE_API_TOKEN secret is set (automatic) OR input token provided
-    if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' || inputs.cloudflare_api_token != '' }}
-    steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/pages-action@v1
-        with:
-          apiToken: ${{ inputs.cloudflare_api_token || secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ inputs.cloudflare_account_id || secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: s24-cms-content-site
-          directory: ./
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+      - run: echo 'Dieser Workflow ist deaktiviert. Bitte deploy-astro.yml verwenden.'
