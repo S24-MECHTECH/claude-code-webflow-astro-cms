@@ -43,7 +43,6 @@ jobs:
 
       - name: Zu Cloudflare Pages deployen
         env:
-          CLOUDFLARE_API_KEY: 8a65b510d84f352ae679c3836ab419c933f09
-          CLOUDFLARE_EMAIL: info@mechtech-support.com
+          CLOUDFLARE_API_TOKEN: 3xeVXwppIJK6i1d-GFhRx7crmzcu5k-_33-HX0YI
           CLOUDFLARE_ACCOUNT_ID: 38dad218e1092829145d4940b0f2292c
         run: npx wrangler pages deploy ./dist --project-name=s24-mechtech --commit-dirty=true
