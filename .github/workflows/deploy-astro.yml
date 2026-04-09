@@ -43,10 +43,7 @@ jobs:
           find dist/ -name "*.html" | wc -l
 
       - name: Zu Cloudflare Pages deployen
-        uses: cloudflare/pages-action@v1
-        with:
-          apiToken: cfat_RDDh5dfjqXmDcmX6nw3frfGExYWzRQL0CmKoMsWi956c1552
-          accountId: 38dad218e1092829145d4940b0f2292c
-          projectName: s24-mechtech
-          directory: ./dist
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          CLOUDFLARE_API_TOKEN: cfat_RDDh5dfjqXmDcmX6nw3frfGExYWzRQL0CmKoMsWi956c1552
+          CLOUDFLARE_ACCOUNT_ID: 38dad218e1092829145d4940b0f2292c
+        run: npx wrangler pages deploy ./dist --project-name=s24-mechtech --commit-dirty=true
