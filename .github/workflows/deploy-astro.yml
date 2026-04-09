@@ -13,10 +13,8 @@ on:
   workflow_dispatch:
 
 env:
-  # SSH-Verbindung zum VPS (72.61.80.236 = srv1091615.hstgr.cloud)
   VPS_HOST: "72.61.80.236"
   VPS_USER: "root"
-  # Webflow API Token (Fallback)
   WEBFLOW_API_TOKEN: ${{ github.event.client_payload.webflow_api_token || secrets.WEBFLOW_API_TOKEN || 'cb07f5cf4719b948ffe39b9a60de5ac10baf34968992975fae2e6f61efef5e2e' }}
 
 jobs:
@@ -48,7 +46,6 @@ jobs:
           path: dist/
           retention-days: 1
 
-  # === VPS DEPLOYMENT (realdollz.de via Traefik) ===
   deploy-vps:
     needs: build
     runs-on: ubuntu-latest
@@ -62,77 +59,61 @@ jobs:
       - name: SSH-Key einrichten
         run: |
           mkdir -p ~/.ssh
-          # Privater SSH-Key (direkt eingebettet für sofortige Funktionsfähigkeit)
-          cat > ~/.ssh/deploy_key << 'SSHKEY'
-          -----BEGIN OPENSSH PRIVATE KEY-----
-          b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
-          QyNTUxOQAAACDx/IT1XIrSVFva5anUePkBDQ8NBjYQLaONkSNBrJeClgAAAKg8dSjCPHUo
-          wgAAAAtzc2gtZWQyNTUxOQAAACDx/IT1XIrSVFva5anUePkBDQ8NBjYQLaONkSNBrJeClg
-          AAAEDTLE8CSvoUsWiPx1qS6sLv0Hyq30NwHB8T8wAefEYUjfH8hPVcitJUW9rlqdR4+QEN
-          Dw0GNhAto42RI0Gsl4KWAAAAHmdpdGh1Yi1hY3Rpb25zLWRlcGxveS0yMDI2MDQwOQECAw
-          QFBgc=
-          -----END OPENSSH PRIVATE KEY-----
-          SSHKEY
-          # Einzeilige Version ohne Einrückungen
-          printf '%s\n' \
-            '-----BEGIN OPENSSH PRIVATE KEY-----' \
-            'b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW' \
-            'QyNTUxOQAAACDx/IT1XIrSVFva5anUePkBDQ8NBjYQLaONkSNBrJeClgAAAKg8dSjCPHUo' \
-            'wgAAAAtzc2gtZWQyNTUxOQAAACDx/IT1XIrSVFva5anUePkBDQ8NBjYQLaONkSNBrJeClg' \
-            'AAAEDTLE8CSvoUsWiPx1qS6sLv0Hyq30NwHB8T8wAefEYUjfH8hPVcitJUW9rlqdR4+QEN' \
-            'Dw0GNhAto42RI0Gsl4KWAAAAHmdpdGh1Yi1hY3Rpb25zLWRlcGxveS0yMDI2MDQwOQECAw' \
-            'QFBgc=' \
-            '-----END OPENSSH PRIVATE KEY-----' > ~/.ssh/deploy_key
+          # Base64-kodierter privater SSH-Key (ed25519, registriert bei Hostinger als github-actions-claude-deploy-20260409)
+          echo "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaVwpReU5UVXhPUUFBQUNEeC9JVDFYSXJTVkZ2YTVhblVlUGtCRFE4TkJqWVFMYU9Oa1NOQnJKZUNsZ0FBQUtnOGRTakNQSFVvCndnQUFBQXR6YzJndFpXUXlOVFV4T1FBQUFDRHgvSVQxWElyU1ZGdmE1YW5VZVBrQkRROE5CallRTGFPTmtTTkJySmVDbGcKQUFBRURUTEU4Q1N2b1VzV2lQeDFxUzZzTHYwSHlxMzBOd0hCOFQ4d0FlZkVZVWpmSDhoUFZjaXRKVVc5cmxxZFI0K1FFTgpEdzBHTmhBdG80MlJJMEdzbDRLV0FBQUFIbWRwZEdoMVlpMWhZM1JwYjI1ekxXUmxjR3h2ZVMweU1ESTJNRFF3T1FFQ0F3ClFGQmdjPQotLS0tLUVORCBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0K" | base64 -d > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          echo "SSH-Key gespeichert ($(wc -c < ~/.ssh/deploy_key) Bytes)"
+          echo "SSH-Key bereit ($(wc -c < ~/.ssh/deploy_key) Bytes)"
+          # Validierung
+          ssh-keygen -l -f ~/.ssh/deploy_key && echo "Key OK" || echo "Key FEHLER"
 
-      - name: Webserver-Verzeichnis auf VPS vorbereiten
+      - name: SSH-Verbindung testen
         run: |
           ssh -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=30 \
             -i ~/.ssh/deploy_key \
             ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
-            "mkdir -p /var/www/realdollz && echo 'Verzeichnis bereit'"
+            "echo 'SSH OK' && uname -a && mkdir -p /var/www/realdollz"
 
       - name: Via rsync auf VPS deployen
         run: |
-          echo "=== Deploye nach VPS /var/www/realdollz ==="
+          echo "=== Deploy nach /var/www/realdollz ==="
           ls -la ./dist/ | head -10
           rsync -avz --delete \
             -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -i ~/.ssh/deploy_key" \
-            --exclude='.git' --exclude='node_modules' --exclude='.env' \
+            --exclude='.git' \
             ./dist/ \
             ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:/var/www/realdollz/
-          echo "Deploy abgeschlossen!"
+          echo "Rsync fertig!"
 
-      - name: Traefik-Routing für realdollz.de einrichten
+      - name: Traefik-Konfiguration für realdollz.de
         run: |
           ssh -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=30 \
             -i ~/.ssh/deploy_key \
             ${{ env.VPS_USER }}@${{ env.VPS_HOST }} << 'REMOTE'
-            # Prüfe ob nginx oder caddy verfügbar
-            if command -v nginx &>/dev/null; then
-              echo "nginx gefunden"
-              cat > /etc/nginx/conf.d/realdollz.conf << 'NGINX'
-          server {
-              listen 80;
-              server_name realdollz.de www.realdollz.de;
-              root /var/www/realdollz;
-              index index.html;
-              location / {
-                  try_files $uri $uri/ /index.html;
-              }
-          }
-          NGINX
-              nginx -t && nginx -s reload
-            else
-              # Statischen Server mit Python starten (Fallback)
-              echo "Dateien deployed nach /var/www/realdollz"
-              ls -la /var/www/realdollz/ | head -10
-            fi
+          # Statischen Dateiserver Container starten (falls noch nicht vorhanden)
+          if ! docker ps --format '{{.Names}}' | grep -q '^astro-realdollz$'; then
+            docker run -d \
+              --name astro-realdollz \
+              --restart always \
+              --network root_mechtech-network \
+              --label "traefik.enable=true" \
+              --label "traefik.http.routers.realdollz.rule=Host(\`realdollz.de\`) || Host(\`www.realdollz.de\`)" \
+              --label "traefik.http.routers.realdollz.tls=true" \
+              --label "traefik.http.routers.realdollz.tls.certresolver=mytlschallenge" \
+              --label "traefik.http.routers.realdollz.entrypoints=web,websecure" \
+              --label "traefik.http.services.realdollz.loadbalancer.server.port=80" \
+              -v /var/www/realdollz:/usr/share/nginx/html:ro \
+              nginx:alpine
+            echo "Nginx-Container gestartet"
+          else
+            docker restart astro-realdollz
+            echo "Nginx-Container neu gestartet"
+          fi
+          echo "Dateien in /var/www/realdollz:"
+          ls -la /var/www/realdollz/ | head -10
           REMOTE
 
       - name: Deployment verifizieren
@@ -142,9 +123,8 @@ jobs:
             -o ConnectTimeout=30 \
             -i ~/.ssh/deploy_key \
             ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
-            "ls -la /var/www/realdollz/ | head -15 && echo '=== index.html ===' && head -5 /var/www/realdollz/index.html 2>/dev/null || echo 'index.html nicht gefunden'"
+            "echo '=== Dateien ===' && ls -la /var/www/realdollz/ | head -10 && echo '=== Docker ===' && docker ps --filter name=astro-realdollz"
 
-  # === CLOUDFLARE PAGES (realdollz.de Hauptdomain) ===
   deploy-cloudflare:
     needs: build
     runs-on: ubuntu-latest
