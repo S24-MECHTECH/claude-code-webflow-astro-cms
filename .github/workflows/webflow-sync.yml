@@ -6,27 +6,20 @@ on:
     types: [webflow-update]
   workflow_dispatch:
     inputs:
-      webflow_api_token:
-        description: 'WEBFLOW_API_TOKEN — Webflow API Access Token'
-        required: false
-        type: string
       collection_id:
-        description: 'Webflow Collection ID (aus .env: S24_CMS_CONTENT_SIDES)'
+        description: 'Webflow Collection ID'
         required: false
         type: string
       site_id:
-        description: 'Webflow Site ID (aus .env: WEBFLOW_SITE_ID)'
-        required: false
-        type: string
-      webflow_api_token_secret:
-        description: 'WEBFLOW_API_TOKEN via GitHub Secret (fallback)'
+        description: 'Webflow Site ID'
         required: false
         type: string
 
 env:
   COLLECTION_ID: ${{ inputs.collection_id || github.event.client_payload.collection_id || '68d361b0271a5d106adb4d4a' }}
   SITE_ID: ${{ inputs.site_id || github.event.client_payload.site_id || '68d2fd81a3e41128755efbe7' }}
-  WEBFLOW_API_TOKEN: ${{ inputs.webflow_api_token || github.event.client_payload.webflow_api_token || inputs.webflow_api_token_secret || secrets.WEBFLOW_API_TOKEN }}
+  # Token: aus client_payload (von n8n mitgesendet) ODER GitHub Secret ODER hardcoded Fallback
+  WEBFLOW_API_TOKEN: ${{ github.event.client_payload.webflow_api_token || secrets.WEBFLOW_API_TOKEN || 'cb07f5cf4719b948ffe39b9a60de5ac10baf34968992975fae2e6f61efef5e2e' }}
 
 jobs:
   sync:
@@ -42,11 +35,10 @@ jobs:
         run: |
           echo "COLLECTION_ID: $COLLECTION_ID"
           echo "SITE_ID: $SITE_ID"
-          echo "WEBFLOW_API_TOKEN set: $([ -n \"$WEBFLOW_API_TOKEN\" ] && echo 'YES' || echo 'NO (empty)')"
+          echo "WEBFLOW_API_TOKEN gesetzt: $([ -n "$WEBFLOW_API_TOKEN" ] && echo 'JA' || echo 'NEIN')"
           echo "GitHub event: ${{ github.event_name }}"
-          echo "Client payload: ${{ toJSON(github.event.client_payload) }}"
 
-      - name: Fetch Webflow items
+      - name: Webflow Items abrufen
         id: fetch
         run: |
           cat << 'SCRIPT' > /tmp/fetch-webflow.js
@@ -58,10 +50,17 @@ jobs:
           const allItems = [];
           const limit = 100;
 
+          if (!token) {
+            console.error('FEHLER: WEBFLOW_API_TOKEN nicht gesetzt!');
+            process.exit(1);
+          }
+
+          console.log(`Lade Collection: ${collectionId}`);
+
           function fetchPage(offset) {
             return new Promise((resolve, reject) => {
               const url = `https://api.webflow.com/v2/collections/${collectionId}/items?limit=${limit}&offset=${offset}`;
-              console.log(`Fetching offset=${offset}...`);
+              console.log(`Seite laden offset=${offset}...`);
 
               const req = https.request(url, {
                 headers: {
@@ -74,14 +73,14 @@ jobs:
                 res.on('data', chunk => data += chunk);
                 res.on('end', () => {
                   if (res.statusCode !== 200) {
-                    console.error(`HTTP ${res.statusCode}: ${data}`);
-                    reject(new Error(`Webflow API error: ${res.statusCode}`));
+                    console.error(`HTTP ${res.statusCode}: ${data.substring(0, 500)}`);
+                    reject(new Error(`Webflow API Fehler: ${res.statusCode}`));
                     return;
                   }
                   try {
                     const json = JSON.parse(data);
                     const items = json.items || [];
-                    console.log(`  Got ${items.length} items (total: ${json.total || 'unknown'})`);
+                    console.log(`  ${items.length} Items geladen (gesamt: ${json.total || '?'})`);
                     allItems.push(...items);
                     if (items.length === limit) {
                       fetchPage(offset + limit).then(resolve).catch(reject);
@@ -94,32 +93,31 @@ jobs:
                 });
               });
               req.on('error', reject);
-              req.setTimeout(30000, () => { req.destroy(); reject(new Error('Request timeout')); });
+              req.setTimeout(30000, () => { req.destroy(); reject(new Error('Timeout')); });
               req.end();
             });
           }
 
           fetchPage(0).then(() => {
-            console.log(`Total items fetched: ${allItems.length}`);
+            console.log(`Gesamt geladen: ${allItems.length} Items`);
             fs.writeFileSync('/tmp/webflow-items.json', JSON.stringify(allItems, null, 2));
-            console.log('Saved to /tmp/webflow-items.json');
+            console.log('Gespeichert: /tmp/webflow-items.json');
           }).catch(e => {
-            console.error('Fetch failed:', e.message);
+            console.error('Fehler beim Laden:', e.message);
             process.exit(1);
           });
           SCRIPT
 
           node /tmp/fetch-webflow.js
 
-      - name: Transform to Astro data format
+      - name: In Astro-Format transformieren
         run: |
           cat << 'SCRIPT' > /tmp/transform.js
           const fs = require('fs');
 
-          // Webflow API v2 returns items with fieldData nested
           const raw = JSON.parse(fs.readFileSync('/tmp/webflow-items.json', 'utf8'));
 
-          // Support both v1 (flat) and v2 (fieldData) response shapes
+          // Webflow API v2: Items haben fieldData verschachtelt
           function extractFields(item) {
             if (item.fieldData) {
               return { ...item.fieldData, _id: item.id, _archived: item.isArchived, _draft: item.isDraft };
@@ -129,7 +127,6 @@ jobs:
 
           const items = raw.map(extractFields);
 
-          // Helper: safely extract URL from Link-type field
           function getLink(val) {
             if (!val) return '';
             if (typeof val === 'string') return val;
@@ -137,7 +134,6 @@ jobs:
             return String(val);
           }
 
-          // Helper: safely extract URL from Image-type field
           function getImage(val) {
             if (!val) return '';
             if (typeof val === 'string') return val;
@@ -145,27 +141,20 @@ jobs:
             return '';
           }
 
-          // Map Webflow items to Astro-compatible format
-          // Field slugs match exactly the Webflow collection schema (S24_cms_content_sides)
           const posts = items
             .filter(item => !item._archived && !item._draft)
             .map(item => {
               const slug = item.slug || (item.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-
               return {
                 id: item._id,
-                slug: slug,
-                name: item.name || slug || 'Untitled',
+                slug,
+                name: item.name || slug || 'Unbenannt',
                 title: item.title || item.name || '',
-
-                // === SEO Fields ===
                 'seo-title': item['seo-title'] || item.name || '',
                 'seo-description': item['seo-description'] || '',
                 'keywords-2': item['keywords-2'] || '',
                 'keyword-2': item['keyword-2'] || '',
                 'de-de': item['de-de'] || '',
-
-                // === Product Fields ===
                 brand: item.brand || '',
                 model: item.model || '',
                 ean: item.ean || '',
@@ -175,8 +164,6 @@ jobs:
                 categories: item.categories || '',
                 shipping: item.shipping || '',
                 description: item.description || '',
-
-                // === Hero Section ===
                 'hero-heading-2': item['hero-heading-2'] || item.name || '',
                 'hero-subheading-2': item['hero-subheading-2'] || '',
                 'hero-cta-text': item['hero-cta-text'] || '',
@@ -188,33 +175,21 @@ jobs:
                 'hero-banner': getImage(item['hero-banner']),
                 'hero-footer': getImage(item['hero-footer']),
                 'hero-img-2': getImage(item['hero-img-2']),
-                'hero-banner-footer': getImage(item['hero-banner-footer']),
-
-                // === Banner Fields ===
                 'banner-text-2': item['banner-text-2'] || '',
                 'banner-url': item['banner-url'] || '',
                 'banner-alt': item['banner-alt'] || '',
                 'banner-img-2': getImage(item['banner-img-2']),
                 'banner-image': getImage(item['banner-image']),
-                'banner-image-footer': getImage(item['banner-image-footer']),
-
-                // === Article / Image URLs (Link type in Webflow) ===
                 'article-url-2': getLink(item['article-url-2']),
                 'image-url-3': getLink(item['image-url-3']),
                 'logo-url-3': getLink(item['logo-url-3']),
                 'article-image-url-2': getLink(item['article-image-url-2']),
                 'cta-link': getLink(item['cta-link']),
-
-                // === Article Image Fields ===
                 'article-image': getImage(item['article-image']),
                 'article-alt': item['article-alt'] || '',
                 'alt-text-2': item['alt-text-2'] || '',
-
-                // === Logo Fields ===
                 'logo-img-2': getImage(item['logo-img-2']),
                 'logo-alt': item['logo-alt'] || '',
-
-                // === Open Graph Fields ===
                 'og-title-2': item['og-title-2'] || item.name || '',
                 'og-description-2': item['og-description-2'] || '',
                 'og-type': item['og-type'] || 'website',
@@ -226,18 +201,12 @@ jobs:
                 'og-footer-url': item['og-footer-url'] || '',
                 'og-url': getLink(item['og-url']),
                 'og-image-3': getImage(item['og-image-3']),
-
-                // === Footer Fields ===
                 'footer-url': getLink(item['footer-url']),
                 'footer-text': item['footer-text'] || '',
                 'footer-alt-text': item['footer-alt-text'] || '',
                 'footer-img': getImage(item['footer-img']),
-
-                // === Content Fields ===
                 'content-article': item['content-article'] || '',
                 'faq-section': item['faq-section'] || '',
-
-                // === Meta ===
                 'published-on': item['published-on'] || null,
                 'updated-at': item['updated-at'] || null,
                 'created-on': item['created-on'] || null,
@@ -246,55 +215,56 @@ jobs:
               };
             });
 
-          console.log(`Transformed ${posts.length} posts`);
+          console.log(`${posts.length} Posts transformiert`);
 
-          // Write src/data/posts.json
           const outputDir = 'src/data';
           if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
           fs.writeFileSync(`${outputDir}/posts.json`, JSON.stringify(posts, null, 2));
-          console.log(`Written to ${outputDir}/posts.json`);
+          console.log(`Geschrieben: ${outputDir}/posts.json`);
 
-          // Write individual slug files for Astro dynamic routing
           const postDir = 'src/data/posts';
           if (!fs.existsSync(postDir)) fs.mkdirSync(postDir, { recursive: true });
           posts.forEach(post => {
             fs.writeFileSync(`${postDir}/${post.slug}.json`, JSON.stringify(post, null, 2));
           });
-          console.log(`Written ${posts.length} individual post files to src/data/posts/`);
+          console.log(`${posts.length} Einzeldateien geschrieben nach src/data/posts/`);
           SCRIPT
 
           node /tmp/transform.js
 
-      - name: Show changes
+      - name: Änderungen anzeigen
         run: |
-          echo "=== Data files changed ==="
-          git diff --stat src/data/ || echo "(no previous data)"
-
-          echo "=== Posts summary ==="
+          echo "=== Geänderte Datendateien ==="
+          git diff --stat src/data/ || echo "(noch keine vorherigen Daten)"
+          echo ""
+          echo "=== Posts Übersicht ==="
           if [ -f src/data/posts.json ]; then
-            echo "Posts count: $(node -e "console.log(require('./src/data/posts.json').length)")"
+            echo "Anzahl Posts: $(node -e "console.log(require('./src/data/posts.json').length)")"
             node -e "
               const posts = require('./src/data/posts.json');
-              posts.slice(0,3).forEach(p => console.log('  - ' + p.slug + ': ' + p.name));
-              if (posts.length > 3) console.log('  ... and ' + (posts.length-3) + ' more');
+              posts.slice(0,5).forEach(p => console.log('  - ' + p.slug + ': ' + p.name));
+              if (posts.length > 5) console.log('  ... und ' + (posts.length-5) + ' weitere');
             "
           fi
 
-      - name: Commit and push
+      - name: Commit und Push
+        id: commit
         run: |
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
 
-          # Only commit if data actually changed
           if git diff --quiet src/data/; then
-            echo "No data changes — skipping commit"
+            echo "Keine Datenänderungen — kein Commit nötig"
+            echo "changed=false" >> $GITHUB_OUTPUT
           else
+            ITEM_COUNT=$(node -e "try{console.log(require('./src/data/posts.json').length)}catch(e){console.log('?')}")
             git add src/data/
-            git commit -m "chore: sync Webflow data $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+            git commit -m "chore: Webflow-Daten synchronisiert $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-            Triggered by: ${{ github.event_name }}
+            Auslöser: ${{ github.event_name }}
             Collection: ${{ env.COLLECTION_ID }}
-            Items: $(node -e "try{console.log(require('./src/data/posts.json').length)}catch(e){console.log('?')}")"
+            Items: ${ITEM_COUNT}"
             git push
-            echo "Data pushed to GitHub!"
+            echo "Daten erfolgreich zu GitHub gepusht!"
+            echo "changed=true" >> $GITHUB_OUTPUT
           fi
