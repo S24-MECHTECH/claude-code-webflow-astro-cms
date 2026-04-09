@@ -5,6 +5,12 @@ on:
     branches: [main]
     paths:
       - 'src/data/**'
+      - 'src/pages/**'
+      - 'src/components/**'
+      - 'src/layouts/**'
+      - 'src/lib/**'
+      - 'astro.config.*'
+      - 'package.json'
   workflow_dispatch:
     inputs:
       hostinger_sftp_host:
@@ -78,6 +84,7 @@ jobs:
           echo "$KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
+          echo "=== Testing SSH connection ==="
           ssh -o StrictHostKeyChecking=no \
               -o UserKnownHostsFile=/dev/null \
               -o BatchMode=yes \
@@ -86,23 +93,24 @@ jobs:
               -i "$HOME/.ssh/deploy_key" \
               "$USER@$HOST" echo "SSH key auth SUCCESS"
 
+          echo "=== Starting rsync deployment ==="
           rsync -avz --delete \
             -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -o PreferredAuthentications=publickey -i $HOME/.ssh/deploy_key" \
             --exclude='.git' --exclude='node_modules' --exclude='src' --exclude='.env' \
             ./ "$USER@$HOST:/public_html/"
 
-          echo "Deployment complete!"
+          echo "Deployment to Hostinger complete!"
 
       - name: Verify deployment
         run: |
-          echo 'Build artifact contains:'
+          echo 'Build artifact deployed to Hostinger!'
           ls -la
-          echo 'Hostinger deploy complete!'
 
   deploy-cloudflare:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event.inputs.cloudflare_api_token != ''
+    # Deploy whenever CLOUDFLARE_API_TOKEN secret is set (automatic) OR input token provided
+    if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' || inputs.cloudflare_api_token != '' }}
     steps:
       - name: Download build artifact
         uses: actions/download-artifact@v4
