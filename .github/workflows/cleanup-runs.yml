@@ -1,6 +1,9 @@
 name: Cleanup Failed Runs
 
 on:
+  push:
+    paths:
+      - '.github/workflows/cleanup-runs.yml'
   workflow_dispatch:
 
 jobs:
