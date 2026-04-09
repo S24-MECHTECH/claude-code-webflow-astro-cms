@@ -5,6 +5,10 @@
  * The webflow-sync.yml GitHub Action keeps posts.json up to date automatically.
  * No WEBFLOW_API_TOKEN needed at build time.
  */
+
+// Static import – Vite/Astro resolves this at build time
+import postsData from '../data/posts.json';
+
 export interface WebflowItem {
   _id?: string;
   id?: string;
@@ -65,37 +69,22 @@ export interface WebflowCollection {
   slug: string;
 }
 
-// Cache so the JSON is only read once per build
-let _postsCache: WebflowItem[] | null = null;
-
 /**
  * Returns all items from src/data/posts.json.
- * The collectionId parameter is accepted for compatibility but ignored —
+ * The collectionId parameter is accepted for API compatibility but ignored —
  * all posts live in one JSON file managed by webflow-sync.yml.
  */
 export async function getCollection(_collectionId?: string): Promise<WebflowItem[]> {
-  if (_postsCache) return _postsCache;
-
-  try {
-    // Dynamic import works in Astro SSG at build time
-    const data = await import('../../src/data/posts.json', {
-      assert: { type: 'json' },
-    });
-    const posts = (Array.isArray(data.default) ? data.default : []) as WebflowItem[];
-    // Normalise: ensure each item has _id and _meta
-    _postsCache = posts.map((item) => ({
-      ...item,
-      _id: item._id || item.id || '',
-      _meta: item._meta || {
-        webflowId: item._id || item.id || '',
-        lastModified: item['updated-at'] || new Date().toISOString(),
-      },
-    }));
-    return _postsCache;
-  } catch (e) {
-    console.warn('posts.json konnte nicht geladen werden:', e);
-    return [];
-  }
+  const posts = (Array.isArray(postsData) ? postsData : []) as WebflowItem[];
+  // Normalise: ensure each item has _id and _meta
+  return posts.map((item) => ({
+    ...item,
+    _id: item._id || item.id || '',
+    _meta: item._meta || {
+      webflowId: item._id || item.id || '',
+      lastModified: item['updated-at'] || new Date().toISOString(),
+    },
+  }));
 }
 
 /**
