@@ -1,4 +1,4 @@
-name: Deploy Astro zu Hostinger VPS & Cloudflare
+name: Deploy Astro zu Cloudflare Pages
 
 on:
   push:
@@ -12,135 +12,41 @@ on:
     types: [webflow-sync, astro-deploy, webflow-update]
   workflow_dispatch:
 
-env:
-  VPS_HOST: "72.61.80.236"
-  VPS_USER: "root"
-  WEBFLOW_API_TOKEN: ${{ github.event.client_payload.webflow_api_token || secrets.WEBFLOW_API_TOKEN || 'cb07f5cf4719b948ffe39b9a60de5ac10baf34968992975fae2e6f61efef5e2e' }}
-
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Node.js einrichten
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
       - name: Abhängigkeiten installieren
-        run: npm install
+        run: npm ci
 
       - name: Astro bauen
         run: npm run build
-        env:
-          WEBFLOW_API_TOKEN: ${{ env.WEBFLOW_API_TOKEN }}
 
-      - name: Build-Artefakt hochladen
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-          retention-days: 1
-
-  deploy-vps:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Build-Artefakt herunterladen
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: ./dist
-
-      - name: SSH-Key einrichten
+      - name: Build-Inhalt prüfen
         run: |
-          mkdir -p ~/.ssh
-          # Base64-kodierter privater SSH-Key (ed25519, registriert bei Hostinger als github-actions-claude-deploy-20260409)
-          echo "LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KYjNCbGJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUFFYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaVwpReU5UVXhPUUFBQUNEeC9JVDFYSXJTVkZ2YTVhblVlUGtCRFE4TkJqWVFMYU9Oa1NOQnJKZUNsZ0FBQUtnOGRTakNQSFVvCndnQUFBQXR6YzJndFpXUXlOVFV4T1FBQUFDRHgvSVQxWElyU1ZGdmE1YW5VZVBrQkRROE5CallRTGFPTmtTTkJySmVDbGcKQUFBRURUTEU4Q1N2b1VzV2lQeDFxUzZzTHYwSHlxMzBOd0hCOFQ4d0FlZkVZVWpmSDhoUFZjaXRKVVc5cmxxZFI0K1FFTgpEdzBHTmhBdG80MlJJMEdzbDRLV0FBQUFIbWRwZEdoMVlpMWhZM1JwYjI1ekxXUmxjR3h2ZVMweU1ESTJNRFF3T1FFQ0F3ClFGQmdjPQotLS0tLUVORCBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0K" | base64 -d > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          echo "SSH-Key bereit ($(wc -c < ~/.ssh/deploy_key) Bytes)"
-          # Validierung
-          ssh-keygen -l -f ~/.ssh/deploy_key && echo "Key OK" || echo "Key FEHLER"
-
-      - name: SSH-Verbindung testen
-        run: |
-          ssh -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=30 \
-            -i ~/.ssh/deploy_key \
-            ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
-            "echo 'SSH OK' && uname -a && mkdir -p /var/www/realdollz"
-
-      - name: Via rsync auf VPS deployen
-        run: |
-          echo "=== Deploy nach /var/www/realdollz ==="
-          ls -la ./dist/ | head -10
-          rsync -avz --delete \
-            -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -i ~/.ssh/deploy_key" \
-            --exclude='.git' \
-            ./dist/ \
-            ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:/var/www/realdollz/
-          echo "Rsync fertig!"
-
-      - name: Traefik-Konfiguration für realdollz.de
-        run: |
-          ssh -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=30 \
-            -i ~/.ssh/deploy_key \
-            ${{ env.VPS_USER }}@${{ env.VPS_HOST }} << 'REMOTE'
-          # Statischen Dateiserver Container starten (falls noch nicht vorhanden)
-          if ! docker ps --format '{{.Names}}' | grep -q '^astro-realdollz$'; then
-            docker run -d \
-              --name astro-realdollz \
-              --restart always \
-              --network root_mechtech-network \
-              --label "traefik.enable=true" \
-              --label "traefik.http.routers.realdollz.rule=Host(\`realdollz.de\`) || Host(\`www.realdollz.de\`)" \
-              --label "traefik.http.routers.realdollz.tls=true" \
-              --label "traefik.http.routers.realdollz.tls.certresolver=mytlschallenge" \
-              --label "traefik.http.routers.realdollz.entrypoints=web,websecure" \
-              --label "traefik.http.services.realdollz.loadbalancer.server.port=80" \
-              -v /var/www/realdollz:/usr/share/nginx/html:ro \
-              nginx:alpine
-            echo "Nginx-Container gestartet"
-          else
-            docker restart astro-realdollz
-            echo "Nginx-Container neu gestartet"
-          fi
-          echo "Dateien in /var/www/realdollz:"
-          ls -la /var/www/realdollz/ | head -10
-          REMOTE
-
-      - name: Deployment verifizieren
-        run: |
-          ssh -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=30 \
-            -i ~/.ssh/deploy_key \
-            ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
-            "echo '=== Dateien ===' && ls -la /var/www/realdollz/ | head -10 && echo '=== Docker ===' && docker ps --filter name=astro-realdollz"
-
-  deploy-cloudflare:
-    needs: build
-    runs-on: ubuntu-latest
-    if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
-    steps:
-      - name: Build-Artefakt herunterladen
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: ./dist
+          echo "=== dist/ Inhalt ==="
+          ls -la dist/
+          echo "=== HTML-Dateien ==="
+          find dist/ -name "*.html" | head -20
+          echo "=== Seiten-Anzahl ==="
+          find dist/ -name "*.html" | wc -l
 
       - name: Zu Cloudflare Pages deployen
         uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: s24-cms-content-site
+          projectName: s24-mechtech
           directory: ./dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
