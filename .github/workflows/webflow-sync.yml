@@ -14,6 +14,9 @@ on:
         description: 'Webflow Site ID'
         required: false
         type: string
+  push:
+    paths:
+      - '.github/workflows/webflow-sync.yml'
 
 env:
   COLLECTION_ID: ${{ inputs.collection_id || github.event.client_payload.collection_id || '68d361b0271a5d106adb4d4a' }}
@@ -268,3 +271,9 @@ jobs:
             echo "Daten erfolgreich zu GitHub gepusht!"
             echo "changed=true" >> $GITHUB_OUTPUT
           fi
+
+      - name: Deploy-Astro triggern (wenn Daten geändert)
+        if: steps.commit.outputs.changed == 'true'
+        run: |
+          echo "Daten wurden geändert - deploy-astro.yml wird automatisch durch den Push getriggert"
+          echo "Der deploy-astro.yml Workflow reagiert auf Änderungen in src/**"
