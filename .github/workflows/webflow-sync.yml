@@ -51,26 +51,23 @@ jobs:
         run: |
           cat << 'SCRIPT' > /tmp/fetch-webflow.js
           const https = require('https');
-          const http = require('http');
           const fs = require('fs');
 
           const token = process.env.WEBFLOW_API_TOKEN;
           const collectionId = process.env.COLLECTION_ID;
-          const siteId = process.env.SITE_ID;
           const allItems = [];
-          let offset = 0;
           const limit = 100;
 
           function fetchPage(offset) {
             return new Promise((resolve, reject) => {
-              const url = `https://api.webflow.com/v2/sites/${siteId}/collections/${collectionId}/items?limit=${limit}&offset=${offset}`;
+              const url = `https://api.webflow.com/v2/collections/${collectionId}/items?limit=${limit}&offset=${offset}`;
               console.log(`Fetching offset=${offset}...`);
 
               const req = https.request(url, {
                 headers: {
                   'Authorization': `Bearer ${token}`,
                   'Accept': 'application/json',
-                  'User-Agent': 'GitHub-Actions-Webflow-Sync/1.0'
+                  'User-Agent': 'GitHub-Actions-Webflow-Sync/2.0'
                 }
               }, (res) => {
                 let data = '';
@@ -118,44 +115,129 @@ jobs:
         run: |
           cat << 'SCRIPT' > /tmp/transform.js
           const fs = require('fs');
-          const items = JSON.parse(fs.readFileSync('/tmp/webflow-items.json', 'utf8'));
+
+          // Webflow API v2 returns items with fieldData nested
+          const raw = JSON.parse(fs.readFileSync('/tmp/webflow-items.json', 'utf8'));
+
+          // Support both v1 (flat) and v2 (fieldData) response shapes
+          function extractFields(item) {
+            if (item.fieldData) {
+              return { ...item.fieldData, _id: item.id, _archived: item.isArchived, _draft: item.isDraft };
+            }
+            return item;
+          }
+
+          const items = raw.map(extractFields);
+
+          // Helper: safely extract URL from Link-type field
+          function getLink(val) {
+            if (!val) return '';
+            if (typeof val === 'string') return val;
+            if (typeof val === 'object') return val.url || val.href || '';
+            return String(val);
+          }
+
+          // Helper: safely extract URL from Image-type field
+          function getImage(val) {
+            if (!val) return '';
+            if (typeof val === 'string') return val;
+            if (typeof val === 'object') return val.url || val.fileId || '';
+            return '';
+          }
 
           // Map Webflow items to Astro-compatible format
+          // Field slugs match exactly the Webflow collection schema (S24_cms_content_sides)
           const posts = items
-            .filter(item => item._archived === false && item._draft === false)
+            .filter(item => !item._archived && !item._draft)
             .map(item => {
-              // Build slug from slug field or name
               const slug = item.slug || (item.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
               return {
                 id: item._id,
                 slug: slug,
-                name: item.name || item.slug || 'Untitled',
-                // SEO fields
+                name: item.name || slug || 'Untitled',
+                title: item.title || item.name || '',
+
+                // === SEO Fields ===
                 'seo-title': item['seo-title'] || item.name || '',
                 'seo-description': item['seo-description'] || '',
-                // Content
-                'content-article': item['content-article'] || '',
-                'faq-section': item['faq-section'] || '',
-                // Hero
-                'hero-heading-2': item['hero-heading-2'] || item.name || '',
-                'hero-subheading-2': item['hero-subheading-2'] || '',
-                'hero-banner': item['hero-banner'] || '',
-                'hero-ready': item['hero-ready'] || false,
-                'hero-cta-text': item['hero-cta-text'] || '',
-                'hero-cta-url': item['hero-cta-url'] || '',
-                // OG
-                'og-title-2': item['og-title-2'] || item.name || '',
-                'og-description-2': item['og-description-2'] || '',
-                'og-image-3': item['og-image-3'] || '',
-                // Product fields
+                'keywords-2': item['keywords-2'] || '',
+                'keyword-2': item['keyword-2'] || '',
+                'de-de': item['de-de'] || '',
+
+                // === Product Fields ===
                 brand: item.brand || '',
                 model: item.model || '',
                 ean: item.ean || '',
                 price: item.price || '',
-                currency: item.currency || '',
+                currency: item.currency || 'EUR',
+                tax: item.tax || '',
+                categories: item.categories || '',
+                shipping: item.shipping || '',
                 description: item.description || '',
-                // Meta
+
+                // === Hero Section ===
+                'hero-heading-2': item['hero-heading-2'] || item.name || '',
+                'hero-subheading-2': item['hero-subheading-2'] || '',
+                'hero-cta-text': item['hero-cta-text'] || '',
+                'hero-cta-url': getLink(item['hero-cta-url']),
+                'hero-footer-url': getLink(item['hero-footer-url']),
+                'hero-banner-url': getLink(item['hero-banner-url']),
+                'hero-ready': item['hero-ready'] || false,
+                'hero-alt': item['hero-alt'] || '',
+                'hero-banner': getImage(item['hero-banner']),
+                'hero-footer': getImage(item['hero-footer']),
+                'hero-img-2': getImage(item['hero-img-2']),
+                'hero-banner-footer': getImage(item['hero-banner-footer']),
+
+                // === Banner Fields ===
+                'banner-text-2': item['banner-text-2'] || '',
+                'banner-url': item['banner-url'] || '',
+                'banner-alt': item['banner-alt'] || '',
+                'banner-img-2': getImage(item['banner-img-2']),
+                'banner-image': getImage(item['banner-image']),
+                'banner-image-footer': getImage(item['banner-image-footer']),
+
+                // === Article / Image URLs (Link type in Webflow) ===
+                'article-url-2': getLink(item['article-url-2']),
+                'image-url-3': getLink(item['image-url-3']),
+                'logo-url-3': getLink(item['logo-url-3']),
+                'article-image-url-2': getLink(item['article-image-url-2']),
+                'cta-link': getLink(item['cta-link']),
+
+                // === Article Image Fields ===
+                'article-image': getImage(item['article-image']),
+                'article-alt': item['article-alt'] || '',
+                'alt-text-2': item['alt-text-2'] || '',
+
+                // === Logo Fields ===
+                'logo-img-2': getImage(item['logo-img-2']),
+                'logo-alt': item['logo-alt'] || '',
+
+                // === Open Graph Fields ===
+                'og-title-2': item['og-title-2'] || item.name || '',
+                'og-description-2': item['og-description-2'] || '',
+                'og-type': item['og-type'] || 'website',
+                'og-locale': item['og-locale'] || 'de_DE',
+                'og-site-name': item['og-site-name'] || '',
+                'og-slug': item['og-slug'] || slug,
+                'og-brand': item['og-brand'] || item.brand || '',
+                'og-model': item['og-model'] || item.model || '',
+                'og-footer-url': item['og-footer-url'] || '',
+                'og-url': getLink(item['og-url']),
+                'og-image-3': getImage(item['og-image-3']),
+
+                // === Footer Fields ===
+                'footer-url': getLink(item['footer-url']),
+                'footer-text': item['footer-text'] || '',
+                'footer-alt-text': item['footer-alt-text'] || '',
+                'footer-img': getImage(item['footer-img']),
+
+                // === Content Fields ===
+                'content-article': item['content-article'] || '',
+                'faq-section': item['faq-section'] || '',
+
+                // === Meta ===
                 'published-on': item['published-on'] || null,
                 'updated-at': item['updated-at'] || null,
                 'created-on': item['created-on'] || null,
@@ -172,13 +254,13 @@ jobs:
           fs.writeFileSync(`${outputDir}/posts.json`, JSON.stringify(posts, null, 2));
           console.log(`Written to ${outputDir}/posts.json`);
 
-          // Also write individual post files for dynamic routing
+          // Write individual slug files for Astro dynamic routing
+          const postDir = 'src/data/posts';
+          if (!fs.existsSync(postDir)) fs.mkdirSync(postDir, { recursive: true });
           posts.forEach(post => {
-            const postDir = `src/pages/posts`;
-            if (!fs.existsSync(postDir)) fs.mkdirSync(postDir, { recursive: true });
             fs.writeFileSync(`${postDir}/${post.slug}.json`, JSON.stringify(post, null, 2));
           });
-          console.log(`Written ${posts.length} individual post files`);
+          console.log(`Written ${posts.length} individual post files to src/data/posts/`);
           SCRIPT
 
           node /tmp/transform.js
