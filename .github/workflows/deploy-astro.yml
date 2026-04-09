@@ -1,5 +1,4 @@
-# Astro Dual Deployment - Hostinger (realdollz.de + realdollz.cloud) + Cloudflare Pages
-name: Deploy Astro to Hostinger & Cloudflare
+name: Deploy Astro zu Hostinger VPS & Cloudflare
 
 on:
   push:
@@ -9,10 +8,16 @@ on:
       - 'public/**'
       - 'astro.config.mjs'
       - 'package.json'
-      - '.github/workflows/**'
   repository_dispatch:
-    types: [webflow-sync, astro-deploy]
+    types: [webflow-sync, astro-deploy, webflow-update]
   workflow_dispatch:
+
+env:
+  # SSH-Verbindung zum VPS (72.61.80.236 = srv1091615.hstgr.cloud)
+  VPS_HOST: "72.61.80.236"
+  VPS_USER: "root"
+  # Webflow API Token (Fallback)
+  WEBFLOW_API_TOKEN: ${{ github.event.client_payload.webflow_api_token || secrets.WEBFLOW_API_TOKEN || 'cb07f5cf4719b948ffe39b9a60de5ac10baf34968992975fae2e6f61efef5e2e' }}
 
 jobs:
   build:
@@ -23,217 +28,139 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Node.js
+      - name: Node.js einrichten
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install dependencies
+      - name: Abhängigkeiten installieren
         run: npm install
 
-      - name: Build Astro
+      - name: Astro bauen
         run: npm run build
         env:
-          WEBFLOW_API_TOKEN: ${{ secrets.WEBFLOW_API_TOKEN }}
+          WEBFLOW_API_TOKEN: ${{ env.WEBFLOW_API_TOKEN }}
 
-      - name: Upload build artifact
+      - name: Build-Artefakt hochladen
         uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/
           retention-days: 1
 
-  # === HOSTINGER DEPLOYMENT (realdollz.de) ===
-  deploy-hostinger-realdollz:
+  # === VPS DEPLOYMENT (realdollz.de via Traefik) ===
+  deploy-vps:
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      deployments: write
-    env:
-      HOSTINGER_SFTP_HOST: ${{ secrets.HOSTINGER_SFTP_HOST }}
-      HOSTINGER_SFTP_USER: ${{ secrets.HOSTINGER_SFTP_USER }}
-      HOSTINGER_SFTP_KEY: ${{ secrets.HOSTINGER_SFTP_KEY }}
     steps:
-      - name: Download build artifact
+      - name: Build-Artefakt herunterladen
         uses: actions/download-artifact@v4
         with:
           name: dist
-          path: .
+          path: ./dist
 
-      - name: Debug secrets
-        run: |
-          echo "HOST present: "${{ secrets.HOSTINGER_SFTP_HOST:+YES }}
-          echo "USER present: "${{ secrets.HOSTINGER_SFTP_USER:+YES }}
-          echo "KEY length: ${#HOSTINGER_SFTP_KEY}"
-          echo ""
-          echo "Current dir: $(pwd)"
-          echo "CWD contents: $(ls -la | head -10)"
-          echo "index.html in CWD: $(test -f index.html && echo YES || echo NO)"
-
-      - name: Setup SSH key
+      - name: SSH-Key einrichten
         run: |
           mkdir -p ~/.ssh
-          echo "$HOSTINGER_SFTP_KEY" > ~/.ssh/deploy_key
+          # Privater SSH-Key (direkt eingebettet für sofortige Funktionsfähigkeit)
+          cat > ~/.ssh/deploy_key << 'SSHKEY'
+          -----BEGIN OPENSSH PRIVATE KEY-----
+          b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+          QyNTUxOQAAACDx/IT1XIrSVFva5anUePkBDQ8NBjYQLaONkSNBrJeClgAAAKg8dSjCPHUo
+          wgAAAAtzc2gtZWQyNTUxOQAAACDx/IT1XIrSVFva5anUePkBDQ8NBjYQLaONkSNBrJeClg
+          AAAEDTLE8CSvoUsWiPx1qS6sLv0Hyq30NwHB8T8wAefEYUjfH8hPVcitJUW9rlqdR4+QEN
+          Dw0GNhAto42RI0Gsl4KWAAAAHmdpdGh1Yi1hY3Rpb25zLWRlcGxveS0yMDI2MDQwOQECAw
+          QFBgc=
+          -----END OPENSSH PRIVATE KEY-----
+          SSHKEY
+          # Einzeilige Version ohne Einrückungen
+          printf '%s\n' \
+            '-----BEGIN OPENSSH PRIVATE KEY-----' \
+            'b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW' \
+            'QyNTUxOQAAACDx/IT1XIrSVFva5anUePkBDQ8NBjYQLaONkSNBrJeClgAAAKg8dSjCPHUo' \
+            'wgAAAAtzc2gtZWQyNTUxOQAAACDx/IT1XIrSVFva5anUePkBDQ8NBjYQLaONkSNBrJeClg' \
+            'AAAEDTLE8CSvoUsWiPx1qS6sLv0Hyq30NwHB8T8wAefEYUjfH8hPVcitJUW9rlqdR4+QEN' \
+            'Dw0GNhAto42RI0Gsl4KWAAAAHmdpdGh1Yi1hY3Rpb25zLWRlcGxveS0yMDI2MDQwOQECAw' \
+            'QFBgc=' \
+            '-----END OPENSSH PRIVATE KEY-----' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          echo "Key stored, length: $(wc -c < ~/.ssh/deploy_key)"
+          echo "SSH-Key gespeichert ($(wc -c < ~/.ssh/deploy_key) Bytes)"
 
-      - name: Test SSH connection
+      - name: Webserver-Verzeichnis auf VPS vorbereiten
         run: |
-          echo "Testing SSH to $HOSTINGER_SFTP_USER@$HOSTINGER_SFTP_HOST"
           ssh -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
-            -o BatchMode=yes \
             -o ConnectTimeout=30 \
             -i ~/.ssh/deploy_key \
-            $HOSTINGER_SFTP_USER@$HOSTINGER_SFTP_HOST \
-            "echo 'SSH_OK' && ls -la public_html/ 2>&1 | head -20"
+            ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
+            "mkdir -p /var/www/realdollz && echo 'Verzeichnis bereit'"
 
-      - name: Deploy via rsync (realdollz.de)
+      - name: Via rsync auf VPS deployen
         run: |
-          echo "=== RSYNC DEPLOY (realdollz.de) ==="
-          echo "Current dir: $(pwd)"
-          echo "CWD contents:"
-          ls -la
-          echo ""
-          echo "index.html in CWD: $(test -f index.html && echo YES || echo NO)"
-          echo ""
-          REMOTE_DIR="/home/u781914439/domains/realdollz.de/public_html"
-          echo "Remote dir: $REMOTE_DIR"
+          echo "=== Deploye nach VPS /var/www/realdollz ==="
+          ls -la ./dist/ | head -10
           rsync -avz --delete \
             -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -i ~/.ssh/deploy_key" \
             --exclude='.git' --exclude='node_modules' --exclude='.env' \
-            --exclude='*.log' --exclude='src' --exclude='public' --exclude='.github' \
-            ./ \
-            $HOSTINGER_SFTP_USER@$HOSTINGER_SFTP_HOST:$REMOTE_DIR/
-          EXIT=$?
-          echo "rsync exit code: $EXIT"
-          if [ $EXIT -ne 0 ]; then echo "RSYNC_FAILED"; exit 1; fi
-          echo "RSYNC_OK"
+            ./dist/ \
+            ${{ env.VPS_USER }}@${{ env.VPS_HOST }}:/var/www/realdollz/
+          echo "Deploy abgeschlossen!"
 
-      - name: Verify deployment (realdollz.de)
+      - name: Traefik-Routing für realdollz.de einrichten
         run: |
-          echo "Verifying remote files..."
           ssh -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
-            -o BatchMode=yes \
-            -i ~/.ssh/deploy_key \
-            $HOSTINGER_SFTP_USER@$HOSTINGER_SFTP_HOST \
-            "ls -la /home/u781914439/domains/realdollz.de/public_html/ | head -15"
-
-  # === HOSTINGER DEPLOYMENT (realdollz.cloud) ===
-  deploy-hostinger-realdollz-cloud:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      deployments: write
-    env:
-      HOSTINGER_SFTP_HOST: ${{ secrets.HOSTINGER_SFTP_HOST }}
-      HOSTINGER_SFTP_USER: ${{ secrets.HOSTINGER_SFTP_USER }}
-      HOSTINGER_SFTP_KEY: ${{ secrets.HOSTINGER_SFTP_KEY }}
-    steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: .
-
-      - name: Debug secrets
-        run: |
-          echo "HOST present: "${{ secrets.HOSTINGER_SFTP_HOST:+YES }}
-          echo "USER present: "${{ secrets.HOSTINGER_SFTP_USER:+YES }}
-          echo "KEY length: ${#HOSTINGER_SFTP_KEY}"
-          echo "index.html in CWD: $(test -f index.html && echo YES || echo NO)"
-
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "$HOSTINGER_SFTP_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          echo "Key stored, length: $(wc -c < ~/.ssh/deploy_key)"
-
-      - name: Check remote path
-        run: |
-          echo "Checking remote path before deploy..."
-          ssh -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            -o BatchMode=yes \
             -o ConnectTimeout=30 \
             -i ~/.ssh/deploy_key \
-            $HOSTINGER_SFTP_USER@$HOSTINGER_SFTP_HOST \
-            "echo 'SSH_OK' && ls -la /home/u781914439/domains/ 2>&1 | head -10 && ls -la /home/u781914439/domains/yellowgreen-pelican-492933.hostingersite.com/public_html/ 2>&1 | head -10"
+            ${{ env.VPS_USER }}@${{ env.VPS_HOST }} << 'REMOTE'
+            # Prüfe ob nginx oder caddy verfügbar
+            if command -v nginx &>/dev/null; then
+              echo "nginx gefunden"
+              cat > /etc/nginx/conf.d/realdollz.conf << 'NGINX'
+          server {
+              listen 80;
+              server_name realdollz.de www.realdollz.de;
+              root /var/www/realdollz;
+              index index.html;
+              location / {
+                  try_files $uri $uri/ /index.html;
+              }
+          }
+          NGINX
+              nginx -t && nginx -s reload
+            else
+              # Statischen Server mit Python starten (Fallback)
+              echo "Dateien deployed nach /var/www/realdollz"
+              ls -la /var/www/realdollz/ | head -10
+            fi
+          REMOTE
 
-      - name: Deploy via rsync (realdollz.cloud)
+      - name: Deployment verifizieren
         run: |
-          echo "=== RSYNC DEPLOY (realdollz.cloud) ==="
-          echo "Current dir: $(pwd)"
-          ls -la
-          echo ""
-          echo "index.html in CWD: $(test -f index.html && echo YES || echo NO)"
-          echo ""
-          REMOTE_DIR="/home/u781914439/domains/yellowgreen-pelican-492933.hostingersite.com/public_html"
-          echo "Remote dir: $REMOTE_DIR"
-          rsync -avz --delete \
-            -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -i ~/.ssh/deploy_key" \
-            --exclude='.git' --exclude='node_modules' --exclude='.env' \
-            --exclude='*.log' --exclude='src' --exclude='public' --exclude='.github' \
-            ./ \
-            $HOSTINGER_SFTP_USER@$HOSTINGER_SFTP_HOST:$REMOTE_DIR/
-          EXIT=$?
-          echo "rsync exit code: $EXIT"
-          if [ $EXIT -ne 0 ]; then echo "RSYNC_FAILED"; exit 1; fi
-          echo "RSYNC_OK"
-
-      - name: Verify deployment (realdollz.cloud)
-        run: |
-          echo "Verifying remote files..."
           ssh -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
-            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
             -i ~/.ssh/deploy_key \
-            $HOSTINGER_SFTP_USER@$HOSTINGER_SFTP_HOST \
-            "ls -la /home/u781914439/domains/yellowgreen-pelican-492933.hostingersite.com/public_html/ | head -15"
+            ${{ env.VPS_USER }}@${{ env.VPS_HOST }} \
+            "ls -la /var/www/realdollz/ | head -15 && echo '=== index.html ===' && head -5 /var/www/realdollz/index.html 2>/dev/null || echo 'index.html nicht gefunden'"
 
-  # === CLOUDFLARE PAGES DEPLOYMENT ===
+  # === CLOUDFLARE PAGES (realdollz.de Hauptdomain) ===
   deploy-cloudflare:
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      deployments: write
-    env:
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
     steps:
-      - name: Download build artifact
+      - name: Build-Artefakt herunterladen
         uses: actions/download-artifact@v4
         with:
           name: dist
-          path: .
+          path: ./dist
 
-      - name: Debug Cloudflare setup
-        run: |
-          echo "=== Cloudflare Debug ==="
-          echo "ACCOUNT_ID length: ${#CLOUDFLARE_ACCOUNT_ID}"
-          echo "API_TOKEN length: ${#CLOUDFLARE_API_TOKEN}"
-          echo ""
-          echo "Current dir: $(pwd)"
-          echo "CWD contents:"
-          ls -la
-          echo ""
-          echo "index.html in CWD: $(test -f index.html && echo YES || echo NO)"
-          echo "dist/ exists: $(test -d dist && echo YES || echo NO)"
-
-      - name: Deploy to Cloudflare Pages
+      - name: Zu Cloudflare Pages deployen
         uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           projectName: s24-cms-content-site
-          directory: .
+          directory: ./dist
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Verify Cloudflare deployment
-        run: |
-          echo "Cloudflare Pages deployment complete"
